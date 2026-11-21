@@ -6,8 +6,12 @@ Each invocation uses a fresh host subprocess. Scenarios:
   bare        - create -> destroy
   configured  - create -> config/log/country -> destroy (no network start)
   started     - create -> config/log/country -> start/login -> destroy
+  certified   - create -> set_cert_file -> destroy
+  started-certified - create -> config/log/country -> set_cert_file -> start/login -> destroy
 
-Run 'bare' and 'configured' before 'started' when investigating a destroy crash.
+The first three agent scenarios deliberately omit set_cert_file. The
+proprietary plug-in can crash on destroy without it. Prefer 'certified' or
+'started-certified' for positive end-to-end lifecycle checks.
 No debugger or printer is required.
 """
 import argparse
@@ -72,10 +76,12 @@ def require_zero(reply, method):
 def main():
     root = Path(__file__).resolve().parents[2]
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--scenario", choices=("ping", "bare", "configured", "started"),
+    ap.add_argument("--scenario", choices=("ping", "bare", "configured", "started",
+                                            "certified", "started-certified"),
                     default="ping")
     ap.add_argument("--abi", choices=("abi1", "abi0"), default="abi1")
     ap.add_argument("--plugin-dir", type=Path, default=root / "bambu-plugin")
+    ap.add_argument("--cert-dir", type=Path, default=root / "resources/cert")
     ap.add_argument("--binary", type=Path)
     ap.add_argument("--timeout", type=float, default=15.0)
     args = ap.parse_args()
@@ -85,6 +91,11 @@ def main():
     binary = binary.expanduser().resolve()
     if not binary.is_file():
         ap.error("host binary not found: " + str(binary))
+
+    if args.scenario in ("certified", "started-certified"):
+        cert_dir = args.cert_dir.expanduser().resolve()
+        if not (cert_dir / "slicer_base64.cer").is_file():
+            ap.error("required certificate missing: " + str(cert_dir / "slicer_base64.cer"))
 
     probe_dir = root / "probe-data"
     probe_dir.mkdir(parents=True, exist_ok=True)
@@ -143,14 +154,20 @@ def main():
                 if not isinstance(agent, int) or agent <= 0:
                     raise RuntimeError("invalid agent handle")
                 params = {"agent": agent}
-                if args.scenario in ("configured", "started"):
+                if args.scenario in ("configured", "started", "started-certified"):
                     for method, fields in (
                         ("net.set_config_dir", {"config_dir": str(probe_dir)}),
                         ("net.init_log", {}),
                         ("net.set_country_code", {"country_code": "PL"}),
                     ):
                         require_zero(rpc(method, {**params, **fields}), method)
-                if args.scenario == "started":
+                if args.scenario in ("certified", "started-certified"):
+                    require_zero(rpc("net.set_cert_file", {
+                        **params,
+                        "folder": str(cert_dir),
+                        "filename": "slicer_base64.cer",
+                    }), "net.set_cert_file")
+                if args.scenario in ("started", "started-certified"):
                     require_zero(rpc("net.start", params), "net.start")
                     login = rpc("net.is_user_login", params)
                     if login.get("ok") is not True or not isinstance(login.get("value"), bool):

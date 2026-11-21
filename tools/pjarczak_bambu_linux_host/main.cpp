@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <cstdio>
 #include <thread>
+#include <filesystem>
+#include <system_error>
 
 using namespace Slic3r::PJarczakLinuxBridge;
 
@@ -23,6 +25,30 @@ int run_probe_auth()
 
     const std::string log_dir = std::getenv("PJARCZAK_BAMBU_PROBE_LOG_DIR") ? std::getenv("PJARCZAK_BAMBU_PROBE_LOG_DIR") : std::string(".");
     const std::string country = std::getenv("PJARCZAK_BAMBU_COUNTRY_CODE") ? std::getenv("PJARCZAK_BAMBU_COUNTRY_CODE") : std::string("PL");
+    // The proprietary plug-in requires a certificate folder even to destroy
+    // a freshly created agent. A version/ABI handshake alone is not enough.
+    const char* configured_cert_dir = std::getenv("PJARCZAK_BAMBU_PROBE_CERT_DIR");
+    std::filesystem::path cert_dir;
+    if (configured_cert_dir && *configured_cert_dir) {
+        cert_dir = configured_cert_dir;
+    } else if (std::filesystem::exists(std::filesystem::path("resources/cert") / "slicer_base64.cer")) {
+        cert_dir = std::filesystem::absolute("resources/cert");
+    } else {
+        std::error_code ec;
+        const auto self = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (!ec)
+            cert_dir = self.parent_path();
+    }
+    if (cert_dir.empty() || !std::filesystem::is_regular_file(cert_dir / "slicer_base64.cer")) {
+        std::cerr << "missing slicer_base64.cer: set PJARCZAK_BAMBU_PROBE_CERT_DIR to the cert folder\n";
+        return 9;
+    }
+    std::error_code create_ec;
+    std::filesystem::create_directories(log_dir, create_ec);
+    if (create_ec) {
+        std::cerr << "cannot create probe log directory: " << create_ec.message() << '\n';
+        return 10;
+    }
     auto created = host.handle("net.create_agent", {{"log_dir", log_dir}, {"country_code", country}});
     if (!created.value("ok", false))
         return 3;
@@ -36,8 +62,15 @@ int run_probe_auth()
         return r.value("ok", false) && r.value("value", -1) == 0;
     };
 
-    // Probe cleanup as well as setup. Otherwise the probe can return success
-    // while the plugin still owns worker threads and crashes during exit.
+    // Set the certificate before any operation that may destroy the agent.
+    // Returning normally from a failed set_cert_file could invoke a crashing
+    // plug-in destructor; exit this isolated probe without C++ static teardown.
+    if (!step("net.set_cert_file", {{"folder", cert_dir.string()}, {"filename", "slicer_base64.cer"}})) {
+        std::cerr << "net.set_cert_file failed; refusing unsafe destroy_agent\n";
+        std::_Exit(11);
+    }
+    // Probe cleanup as well as setup. Otherwise the plugin can leave workers
+    // running and abort during process teardown.
     if (!step("net.set_config_dir", {{"config_dir", log_dir}})) {
         (void)step("net.destroy_agent", nlohmann::json::object());
         return 5;
