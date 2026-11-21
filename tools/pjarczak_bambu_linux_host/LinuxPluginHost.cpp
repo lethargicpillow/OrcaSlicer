@@ -1194,7 +1194,7 @@ nlohmann::json LinuxPluginHost::handle(const std::string& method, const nlohmann
         job->kind = "publish";
         register_job(job);
         std::string output;
-        const int ret = f(a, publish_params_from_json(params_json),
+        const int ret = f(a, JsonBridge::publish_params_from_json(params_json),
             [this, job](int status, int code, std::string msg) {
                 queue_event(job->agent_handle, "job.update_status",
                             {{"job_id", job->job_id}, {"kind", job->kind},
