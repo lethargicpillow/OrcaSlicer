@@ -816,6 +816,11 @@ nlohmann::json LinuxPluginHost::handle(const std::string& method, const nlohmann
             m_agents.erase(it);
             m_country_codes.erase(id);
         }
+        // Match OrcaSlicer's BBLNetworkPlugin::destroy_agent() lifecycle:
+        // stop SSDP discovery (and let its workers join) before freeing the
+        // agent-owned discovery state. No printer or network login is needed.
+        if (auto stop_discovery = net<bool (*)(void*, bool, bool)>("bambu_network_start_discovery"))
+            (void)stop_discovery(raw, false, false);
         const int ret = f(raw);
         return {{"ok", true}, {"value", ret}};
     }

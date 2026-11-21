@@ -33,19 +33,29 @@ int run_probe_auth()
     auto step = [&](const char* method, nlohmann::json payload) -> bool {
         payload["agent"] = agent;
         auto r = host.handle(method, payload);
-        return r.value("ok", false);
+        return r.value("ok", false) && r.value("value", -1) == 0;
     };
 
-    if (!step("net.set_config_dir", {{"config_dir", log_dir}}))
+    // Probe cleanup as well as setup. Otherwise the probe can return success
+    // while the plugin still owns worker threads and crashes during exit.
+    if (!step("net.set_config_dir", {{"config_dir", log_dir}})) {
+        (void)step("net.destroy_agent", nlohmann::json::object());
         return 5;
-    if (!step("net.init_log", nlohmann::json::object()))
+    }
+    if (!step("net.init_log", nlohmann::json::object())) {
+        (void)step("net.destroy_agent", nlohmann::json::object());
         return 6;
-    step("net.set_country_code", {{"country_code", country}});
-    step("net.start", nlohmann::json::object());
+    }
+    (void)step("net.set_country_code", {{"country_code", country}});
+    const bool started = step("net.start", nlohmann::json::object());
 
-    auto is_login = host.handle("net.is_user_login", {{"agent", agent}});
-    if (!is_login.value("ok", false))
+    auto is_login = started ? host.handle("net.is_user_login", {{"agent", agent}})
+                            : nlohmann::json::object();
+    const bool destroyed = step("net.destroy_agent", nlohmann::json::object());
+    if (!started || !is_login.value("ok", false))
         return 7;
+    if (!destroyed)
+        return 8;
 
     return 0;
 }
