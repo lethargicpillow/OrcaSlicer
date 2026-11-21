@@ -8,6 +8,7 @@ Each invocation uses a fresh host subprocess. Scenarios:
   started     - create -> config/log/country -> start/login -> destroy
   certified   - create -> set_cert_file -> destroy
   started-certified - create -> config/log/country -> set_cert_file -> start/login -> destroy
+  discovery   - initialize agent -> subscribe to SSDP -> listen -> stop -> destroy
 
 The host must initialize certificates during create_agent. The 'bare'
 scenario verifies immediate safe destruction even without an explicit
@@ -78,14 +79,22 @@ def main():
     root = Path(__file__).resolve().parents[2]
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--scenario", choices=("ping", "bare", "configured", "started",
-                                            "certified", "started-certified"),
+                                            "certified", "started-certified", "discovery"),
                     default="ping")
+    ap.add_argument("--discover-seconds", type=float, default=12.0,
+                    help="how long to poll LAN discovery events (default: 12 s)")
+    ap.add_argument("--require-events", action="store_true",
+                    help="fail if no SSDP event is received; requires a reachable printer")
     ap.add_argument("--abi", choices=("abi1", "abi0"), default="abi1")
     ap.add_argument("--plugin-dir", type=Path, default=root / "bambu-plugin")
     ap.add_argument("--cert-dir", type=Path, default=root / "resources/cert")
     ap.add_argument("--binary", type=Path)
     ap.add_argument("--timeout", type=float, default=15.0)
     args = ap.parse_args()
+    if args.discover_seconds < 0.5 or args.discover_seconds > 120:
+        ap.error("--discover-seconds must be between 0.5 and 120")
+    if args.require_events and args.scenario != "discovery":
+        ap.error("--require-events only applies to --scenario discovery")
 
     binary = args.binary or (root / "build/bambulab-host/tools/pjarczak_bambu_linux_host"
                              / ("pjarczak_bambu_linux_host_" + args.abi))
@@ -155,24 +164,62 @@ def main():
                 if not isinstance(agent, int) or agent <= 0:
                     raise RuntimeError("invalid agent handle")
                 params = {"agent": agent}
-                if args.scenario in ("configured", "started", "started-certified"):
+                if args.scenario in ("configured", "started", "started-certified", "discovery"):
                     for method, fields in (
                         ("net.set_config_dir", {"config_dir": str(probe_dir)}),
                         ("net.init_log", {}),
                         ("net.set_country_code", {"country_code": "PL"}),
                     ):
                         require_zero(rpc(method, {**params, **fields}), method)
-                if args.scenario in ("certified", "started-certified"):
+                if args.scenario in ("certified", "started-certified", "discovery"):
                     require_zero(rpc("net.set_cert_file", {
                         **params,
                         "folder": str(cert_dir),
                         "filename": "slicer_base64.cer",
                     }), "net.set_cert_file")
-                if args.scenario in ("started", "started-certified"):
+                if args.scenario in ("started", "started-certified", "discovery"):
                     require_zero(rpc("net.start", params), "net.start")
                     login = rpc("net.is_user_login", params)
                     if login.get("ok") is not True or not isinstance(login.get("value"), bool):
                         raise RuntimeError("net.is_user_login failed")
+                if args.scenario == "discovery":
+                    require_zero(rpc("net.set_on_ssdp_msg_fn", params),
+                                 "net.set_on_ssdp_msg_fn")
+                    started = rpc("net.start_discovery", {
+                        **params, "start": True, "sending": False,
+                    })
+                    if started.get("ok") is not True or started.get("value") is not True:
+                        raise RuntimeError("net.start_discovery returned failure: " + repr(started))
+                    count = 0
+                    names = {}
+                    deadline = time.monotonic() + args.discover_seconds
+                    try:
+                        while time.monotonic() < deadline:
+                            reply = rpc("bridge.poll_events", {"limit": 128})
+                            if reply.get("ok") is not True or not isinstance(reply.get("events"), list):
+                                raise RuntimeError("bridge.poll_events failed: " + repr(reply))
+                            for event in reply["events"]:
+                                if not isinstance(event, dict):
+                                    continue
+                                name = event.get("name", "unknown")
+                                names[name] = names.get(name, 0) + 1
+                                if event.get("agent") == agent and name == "on_ssdp_msg":
+                                    count += 1
+                            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+                    finally:
+                        stopped = rpc("net.start_discovery", {
+                            **params, "start": False, "sending": False,
+                        })
+                        if stopped.get("ok") is not True:
+                            raise RuntimeError("stopping SSDP failed: " + repr(stopped))
+                    print("LAN discovery: {} SSDP events in {:.1f}s".format(
+                        count, args.discover_seconds), flush=True)
+                    print("EVENT TYPES: " + repr(names), flush=True)
+                    if count == 0:
+                        print("No SSDP device event: network reception not verified; "
+                              "the RPC lifecycle can still pass.", flush=True)
+                    if args.require_events and count == 0:
+                        raise RuntimeError("no SSDP device events observed")
                 require_zero(rpc("net.destroy_agent", params), "net.destroy_agent")
         except (OSError, ValueError, EOFError, TimeoutError, RuntimeError) as exc:
             status = 1
