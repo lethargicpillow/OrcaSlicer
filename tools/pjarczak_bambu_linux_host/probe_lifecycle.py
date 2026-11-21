@@ -9,9 +9,10 @@ Each invocation uses a fresh host subprocess. Scenarios:
   certified   - create -> set_cert_file -> destroy
   started-certified - create -> config/log/country -> set_cert_file -> start/login -> destroy
 
-The first three agent scenarios deliberately omit set_cert_file. The
-proprietary plug-in can crash on destroy without it. Prefer 'certified' or
-'started-certified' for positive end-to-end lifecycle checks.
+The host must initialize certificates during create_agent. The 'bare'
+scenario verifies immediate safe destruction even without an explicit
+set_cert_file RPC. The 'certified' scenarios additionally exercise the
+explicit certificate setter used by OrcaSlicer.
 No debugger or printer is required.
 """
 import argparse
@@ -92,10 +93,9 @@ def main():
     if not binary.is_file():
         ap.error("host binary not found: " + str(binary))
 
-    if args.scenario in ("certified", "started-certified"):
-        cert_dir = args.cert_dir.expanduser().resolve()
-        if not (cert_dir / "slicer_base64.cer").is_file():
-            ap.error("required certificate missing: " + str(cert_dir / "slicer_base64.cer"))
+    cert_dir = args.cert_dir.expanduser().resolve()
+    if args.scenario != "ping" and not (cert_dir / "slicer_base64.cer").is_file():
+        ap.error("required certificate missing: " + str(cert_dir / "slicer_base64.cer"))
 
     probe_dir = root / "probe-data"
     probe_dir.mkdir(parents=True, exist_ok=True)
@@ -111,13 +111,14 @@ def main():
             "PJARCZAK_BAMBU_PLUGIN_DIR": str(plugin_dir),
             "PJARCZAK_BAMBU_NETWORK_SO": str(plugin_dir / "libbambu_networking.so"),
             "PJARCZAK_BAMBU_SOURCE_SO": str(plugin_dir / "libBambuSource.so"),
+            "PJARCZAK_BAMBU_CERT_DIR": str(cert_dir),
             "PJARCZAK_EXPECTED_BAMBU_NETWORK_VERSION": "02.08.04",
             "LD_LIBRARY_PATH": str(plugin_dir) + (
                 ":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else ""),
         })
     else:
         for key in ("PJARCZAK_BAMBU_PLUGIN_DIR", "PJARCZAK_BAMBU_NETWORK_SO",
-                    "PJARCZAK_BAMBU_SOURCE_SO"):
+                    "PJARCZAK_BAMBU_SOURCE_SO", "PJARCZAK_BAMBU_CERT_DIR"):
             env.pop(key, None)
 
     status = 0

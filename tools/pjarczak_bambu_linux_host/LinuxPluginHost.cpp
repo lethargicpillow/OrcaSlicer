@@ -17,6 +17,7 @@
 #include <sstream>
 #include <iostream>
 #include <filesystem>
+#include <system_error>
 #include <unistd.h>
 
 using namespace std::chrono_literals;
@@ -86,6 +87,31 @@ std::string env_or(const char* name, const char* fallback)
     if (const char* v = std::getenv(name))
         return v;
     return fallback;
+}
+
+std::filesystem::path host_certificate_folder()
+{
+    constexpr const char* name = "slicer_base64.cer";
+    if (const char* configured = std::getenv("PJARCZAK_BAMBU_CERT_DIR"); configured && *configured) {
+        const std::filesystem::path candidate(configured);
+        return std::filesystem::is_regular_file(candidate / name) ? candidate : std::filesystem::path();
+    }
+    std::vector<std::filesystem::path> candidates;
+    if (const char* plugin = std::getenv("PJARCZAK_BAMBU_PLUGIN_DIR"); plugin && *plugin)
+        candidates.emplace_back(plugin);
+    if (const char* network = std::getenv("PJARCZAK_BAMBU_NETWORK_SO"); network && *network)
+        candidates.emplace_back(std::filesystem::path(network).parent_path());
+    std::error_code ec;
+    const auto executable = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec)
+        candidates.emplace_back(executable.parent_path());
+    candidates.emplace_back("resources/cert");
+    candidates.emplace_back("cert");
+    for (const auto& candidate : candidates) {
+        if (!candidate.empty() && std::filesystem::is_regular_file(candidate / name))
+            return std::filesystem::absolute(candidate);
+    }
+    return {};
 }
 
 std::mutex g_host_log_mutex;
@@ -792,15 +818,36 @@ nlohmann::json LinuxPluginHost::handle(const std::string& method, const nlohmann
 
     if (method == "net.create_agent") {
         auto f = net<void* (*)(std::string)>("bambu_network_create_agent");
-        if (!f) return not_supported(method);
+        auto set_cert = net<int (*)(void*, std::string, std::string)>("bambu_network_set_cert_file");
+        if (!f || !set_cert)
+            return not_supported(method);
+
+        // Fail before creating an agent if the cert is absent: even a bare
+        // destroy or normal stdin EOF can crash this proprietary plug-in.
+        const auto cert_dir = host_certificate_folder();
+        if (cert_dir.empty())
+            return {{"ok", false}, {"error", "slicer_base64.cer missing; set PJARCZAK_BAMBU_CERT_DIR to its directory"}};
         const std::string log_dir = windows_path_to_wsl(payload.value("log_dir", std::string()));
+        if (log_dir.empty())
+            return {{"ok", false}, {"error", "log_dir is required"}};
+        std::error_code ec;
+        std::filesystem::create_directories(log_dir, ec);
+        if (ec)
+            return {{"ok", false}, {"error", "cannot create log_dir: " + ec.message()}};
+
         void* raw = f(log_dir);
+        if (!raw)
+            return {{"ok", false}, {"error", "bambu_network_create_agent returned null"}};
+        const int cert_ret = set_cert(raw, cert_dir.string(), "slicer_base64.cer");
         const auto id = m_next_agent++;
         {
             std::lock_guard<std::mutex> lock(m_state_mutex);
             m_agents[id] = raw;
+            m_agent_cert_ready[id] = (cert_ret == 0);
             m_country_codes[id] = payload.value("country_code", std::string());
         }
+        if (cert_ret != 0)
+            return {{"ok", false}, {"agent", id}, {"error", "bambu_network_set_cert_file failed"}, {"value", cert_ret}};
         return {{"ok", true}, {"value", id}};
     }
     if (method == "net.destroy_agent") {
@@ -812,16 +859,21 @@ nlohmann::json LinuxPluginHost::handle(const std::string& method, const nlohmann
             std::lock_guard<std::mutex> lock(m_state_mutex);
             auto it = m_agents.find(id);
             if (it == m_agents.end()) return {{"ok", false}, {"error", "agent not found"}};
+            if (!m_agent_cert_ready[id])
+                return {{"ok", false}, {"error", "net.set_cert_file has not succeeded for this agent"}};
             raw = it->second;
-            m_agents.erase(it);
-            m_country_codes.erase(id);
         }
-        // Match OrcaSlicer's BBLNetworkPlugin::destroy_agent() lifecycle:
-        // stop SSDP discovery (and let its workers join) before freeing the
-        // agent-owned discovery state. No printer or network login is needed.
+        // Match OrcaSlicer's BBLNetworkPlugin::destroy_agent(): stop discovery
+        // (joining its threads) before releasing the agent-owned state.
         if (auto stop_discovery = net<bool (*)(void*, bool, bool)>("bambu_network_start_discovery"))
             (void)stop_discovery(raw, false, false);
         const int ret = f(raw);
+        {
+            std::lock_guard<std::mutex> lock(m_state_mutex);
+            m_agents.erase(id);
+            m_agent_cert_ready.erase(id);
+            m_country_codes.erase(id);
+        }
         return {{"ok", true}, {"value", ret}};
     }
 
@@ -869,7 +921,14 @@ nlohmann::json LinuxPluginHost::handle(const std::string& method, const nlohmann
         if (!f || !a) return not_supported(method);
         const auto folder = windows_path_to_wsl(payload.value("folder", std::string()));
         const auto filename = payload.value("filename", std::string());
+        if (folder.empty() || filename.empty() ||
+            !std::filesystem::is_regular_file(std::filesystem::path(folder) / filename))
+            return {{"ok", false}, {"error", "certificate file does not exist"}};
         const int ret = f(a, folder, filename);
+        if (ret == 0) {
+            std::lock_guard<std::mutex> lock(m_state_mutex);
+            m_agent_cert_ready[agent_id] = true;
+        }
         nlohmann::json r{{"ok", true}, {"value", ret}, {"folder", folder}, {"filename", filename}, {"ssl_cert_file", env_or("SSL_CERT_FILE", "")}, {"curl_ca_bundle", env_or("CURL_CA_BUNDLE", "")}};
         host_log_json("net.set_cert_file", r);
         return r;
@@ -892,8 +951,8 @@ nlohmann::json LinuxPluginHost::handle(const std::string& method, const nlohmann
     if (method == "net.del_subscribe") { auto f = net<int (*)(void*, std::vector<std::string>)>("bambu_network_del_subscribe"); auto a = lookup_agent(); return f && a ? nlohmann::json{{"ok", true}, {"value", f(a, payload.value("devs", std::vector<std::string>()))}} : not_supported(method); }
     if (method == "net.enable_multi_machine") { auto f = net<void (*)(void*, bool)>("bambu_network_enable_multi_machine"); auto a = lookup_agent(); if (!f || !a) return not_supported(method); f(a, payload.value("enable", false)); return {{"ok", true}, {"value", 0}}; }
     if (method == "net.send_message") { auto f = net<int (*)(void*, std::string, std::string, int, int)>("bambu_network_send_message"); auto a = lookup_agent(); return f && a ? nlohmann::json{{"ok", true}, {"value", f(a, payload.value("dev_id", std::string()), payload.value("msg", std::string()), payload.value("qos", 0), payload.value("flag", 0))}} : not_supported(method); }
-    if (method == "net.connect_printer") { auto f = net<int (*)(void*, std::string, std::string, std::string, std::string, bool)>("bambu_network_connect_printer"); auto a = lookup_agent(); return f && a ? nlohmann::json{{"ok", true}, {"value", f(a, payload.value("dev_id", std::string()), payload.value("dev_ip", std::string()), payload.value("username", std::string()), payload.value("password", std::string()), payload.value("use_ssl", false))}} : not_supported(method); }
-    if (method == "net.disconnect_printer") { auto f = net<int (*)(void*)>("bambu_network_disconnect_printer"); auto a = lookup_agent(); return f && a ? nlohmann::json{{"ok", true}, {"value", f(a)}} : not_supported(method); }
+    if (method == "net.connect_printer") { { std::lock_guard<std::mutex> lock(m_state_mutex); if (!m_agent_cert_ready[agent_id]) return {{"ok", false}, {"error", "net.set_cert_file has not succeeded for this agent"}}; } auto f = net<int (*)(void*, std::string, std::string, std::string, std::string, bool)>("bambu_network_connect_printer"); auto a = lookup_agent(); return f && a ? nlohmann::json{{"ok", true}, {"value", f(a, payload.value("dev_id", std::string()), payload.value("dev_ip", std::string()), payload.value("username", std::string()), payload.value("password", std::string()), payload.value("use_ssl", false))}} : not_supported(method); }
+    if (method == "net.disconnect_printer") { { std::lock_guard<std::mutex> lock(m_state_mutex); if (!m_agent_cert_ready[agent_id]) return {{"ok", false}, {"error", "net.set_cert_file has not succeeded for this agent"}}; } auto f = net<int (*)(void*)>("bambu_network_disconnect_printer"); auto a = lookup_agent(); return f && a ? nlohmann::json{{"ok", true}, {"value", f(a)}} : not_supported(method); }
     if (method == "net.send_message_to_printer") { auto f = net<int (*)(void*, std::string, std::string, int, int)>("bambu_network_send_message_to_printer"); auto a = lookup_agent(); return f && a ? nlohmann::json{{"ok", true}, {"value", f(a, payload.value("dev_id", std::string()), payload.value("msg", std::string()), payload.value("qos", 0), payload.value("flag", 0))}} : not_supported(method); }
     if (method == "net.update_cert") { auto f = net<int (*)(void*)>("bambu_network_update_cert"); auto a = lookup_agent(); return f && a ? nlohmann::json{{"ok", true}, {"value", f(a)}} : not_supported(method); }
     if (method == "net.install_device_cert") { auto f = net<void (*)(void*, std::string, bool)>("bambu_network_install_device_cert"); auto a = lookup_agent(); if (!f || !a) return not_supported(method); f(a, payload.value("dev_id", std::string()), payload.value("lan_only", false)); return {{"ok", true}, {"value", 0}}; }

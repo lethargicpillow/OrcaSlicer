@@ -43,6 +43,9 @@ int run_probe_auth()
         std::cerr << "missing slicer_base64.cer: set PJARCZAK_BAMBU_PROBE_CERT_DIR to the cert folder\n";
         return 9;
     }
+    const std::string cert_dir_string = cert_dir.string();
+    if (::setenv("PJARCZAK_BAMBU_CERT_DIR", cert_dir_string.c_str(), 1) != 0)
+        return 12;
     std::error_code create_ec;
     std::filesystem::create_directories(log_dir, create_ec);
     if (create_ec) {

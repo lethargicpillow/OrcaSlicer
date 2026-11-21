@@ -101,6 +101,9 @@ private:
     std::int64_t m_next_ft_tunnel{1};
     std::int64_t m_next_ft_job{1};
     std::map<std::int64_t, void*> m_agents;
+    // Proprietary BambuNetwork 02.08.04.x can dereference null during
+    // destroy/connect/disconnect unless set_cert_file has succeeded.
+    std::map<std::int64_t, bool> m_agent_cert_ready;
     std::map<std::int64_t, void*> m_tunnels;
     std::map<std::int64_t, void*> m_ft_tunnels;
     std::map<std::int64_t, void*> m_ft_jobs;
