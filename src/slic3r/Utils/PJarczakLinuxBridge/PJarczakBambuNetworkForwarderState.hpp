@@ -16,6 +16,11 @@
 
 #include <nlohmann/json.hpp>
 
+#ifndef PJARCZAK_BBL_NAMESPACE_ALIAS_DEFINED
+#define PJARCZAK_BBL_NAMESPACE_ALIAS_DEFINED
+namespace BBL = Slic3r;
+#endif
+
 namespace Slic3r::PJarczakLinuxBridge {
 
 struct BridgeJobState;
