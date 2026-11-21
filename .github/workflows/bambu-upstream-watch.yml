@@ -1,0 +1,60 @@
+name: Watch upstream stable OrcaSlicer releases
+
+# Runs on default branch. Never merges upstream code.
+on:
+  schedule:
+    - cron: '17 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Compare latest official stable release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const official = await github.rest.repos.getLatestRelease({
+              owner: 'OrcaSlicer', repo: 'OrcaSlicer'
+            });
+            const release = official.data;
+            if (release.draft || release.prerelease) {
+              core.info('Latest returned release is not stable; skipping.');
+              return;
+            }
+            const tag = release.tag_name;
+            if (!tag) throw new Error('Official stable release has no tag.');
+            const title = 'Upstream OrcaSlicer stable release: ' + tag;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100
+            });
+            if (issues.some(issue => !issue.pull_request && issue.title === title)) {
+              core.info('Already tracked ' + tag);
+              return;
+            }
+            const body = [
+              'Official stable release: ' + release.html_url,
+              'Official tag: ' + tag,
+              '',
+              'This is a review task, NOT an automatic merge.',
+              'Review upstream changes against feature/bambulab-network.',
+              'Check BambuNetwork ABI compatibility and build Linux bridge/Host.',
+              'Test X1E LAN Only, printer controls, AMS, camera, slicing/printing,',
+              'GUI responsiveness and plugin lifecycle before publishing.',
+              '',
+              'Published upstream: ' + (release.published_at || 'unknown')
+            ].join('\n');
+            const created = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body
+            });
+            core.info('Opened ' + created.data.html_url);
