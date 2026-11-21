@@ -1619,6 +1619,11 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
     std::string target_file_path = (fs::temp_directory_path() / package_name).string();
 
     BOOST_LOG_TRIVIAL(info) << "[install_plugin] enter";
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    const bool linux_bridge_payload = name == "plugins" && PJarczakLinuxBridge::enabled();
+#else
+    const bool linux_bridge_payload = false;
+#endif
     // get plugin folder
     std::string data_dir_str = data_dir();
     boost::filesystem::path data_dir_path(data_dir_str);
@@ -1652,7 +1657,7 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
 
     boost::filesystem::path legacy_lib_path, legacy_lib_backup;
     bool had_existing_legacy = false;
-    if (name == "plugins") {
+    if (name == "plugins" && !linux_bridge_payload) {
 #if defined(_MSC_VER) || defined(_WIN32)
         legacy_lib_path = plugin_folder / (std::string(BAMBU_NETWORK_LIBRARY) + ".dll");
 #elif defined(__WXMAC__)
@@ -1695,12 +1700,26 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
                     size_t n = mz_zip_reader_get_extra(&archive, stat.m_file_index, extra.data(), extra.size());
                     dest_file = decode(extra.substr(0, n), stat.m_filename);
                 }
+                // Check the ORIGINAL archive path before flattening it.
+                // A malicious ../ entry must not become a trusted basename.
                 if (!is_path_within_root(dest_file, plugin_folder)) {
                     BOOST_LOG_TRIVIAL(error) << "[install_plugin] entry " << dest_file << " resolves outside " << plugin_folder.string();
                     close_zip_reader(&archive);
                     if (pro_fn) { pro_fn(InstallStatusUnzipFailed, 0, cancel); }
                     return InstallStatusUnzipFailed;
                 }
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+                if (linux_bridge_payload) {
+                    const std::string file_name = boost::filesystem::path(dest_file).filename().string();
+                    // The Linux host needs ELF networking and source libraries;
+                    // Windows/macOS shared libraries must not shadow them.
+                    if (!PJarczakLinuxBridge::is_linux_payload_filename(file_name) &&
+                        file_name != "liblive555.so" &&
+                        file_name != PJarczakLinuxBridge::linux_payload_manifest_file_name())
+                        continue;
+                    dest_file = file_name;
+                }
+#endif
                 auto dest_path = plugin_folder / dest_file;
 #ifndef WIN32
                 // Validate a symlink's target before anything at the destination is replaced.
@@ -1789,7 +1808,7 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
 
     close_zip_reader(&archive);
 
-    if (name == "plugins") {
+    if (name == "plugins" && !linux_bridge_payload) {
         std::string config_version = app_config->get_network_plugin_version();
         if (config_version.empty()) {
             config_version = get_latest_network_version();
@@ -1828,6 +1847,30 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
             }
         }
     }
+
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    if (linux_bridge_payload) {
+        // Validate ELF headers and optional hashes before exposing the payload
+        // to a host process. Fail closed on incomplete/mismatched installs.
+        std::string reason;
+        for (const auto& name : {
+                PJarczakLinuxBridge::linux_network_library_name(),
+                PJarczakLinuxBridge::linux_source_library_name()}) {
+            if (!PJarczakLinuxBridge::validate_linux_payload_file((plugin_folder / name).string(), &reason)) {
+                BOOST_LOG_TRIVIAL(error) << "[install_plugin] bridge payload validation failed for "
+                                         << name << ": " << reason;
+                if (pro_fn) pro_fn(InstallStatusUnzipFailed, 0, cancel);
+                return InstallStatusUnzipFailed;
+            }
+        }
+        if (boost::filesystem::exists(plugin_folder / PJarczakLinuxBridge::linux_payload_manifest_file_name()) &&
+            !PJarczakLinuxBridge::validate_linux_payload_set_against_manifest(plugin_folder, &reason)) {
+            BOOST_LOG_TRIVIAL(error) << "[install_plugin] bridge manifest invalid: " << reason;
+            if (pro_fn) pro_fn(InstallStatusUnzipFailed, 0, cancel);
+            return InstallStatusUnzipFailed;
+        }
+    }
+#endif
 
     {
         fs::path dir_path(plugin_folder);
