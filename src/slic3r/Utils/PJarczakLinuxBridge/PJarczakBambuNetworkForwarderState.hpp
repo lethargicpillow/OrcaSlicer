@@ -1,6 +1,9 @@
 #pragma once
 
-#include "../bambu_networking.hpp"
+// The RPC bridge shares the current BambuNetwork ABI declarations with its
+// standalone host. Avoid the GUI-only AppConfig.hpp dependency in the original
+// networking header. The snapshot must track the original ABI.
+#include "../../../../shared/pjarczak_linux_plugin_bridge_core/CurrentBambuNetworking.hpp"
 #include "../../GUI/Printer/BambuTunnel.h"
 #include "PJarczakLinuxBridgeCompat.hpp"
 

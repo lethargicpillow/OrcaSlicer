@@ -11,11 +11,10 @@
 #include <boost/filesystem/path.hpp>
 #include <openssl/sha.h>
 #include <nlohmann/json.hpp>
-#if defined(PJARCZAK_LINUX_BRIDGE_STANDALONE_HOST)
+// This translation unit only needs the current BambuNetwork ABI constants.
+// The GUI header additionally pulls AppConfig.hpp and its unrelated heavy
+// dependencies (Eigen, etc.). Keep the independent RPC bridge lightweight.
 #include "../../../../shared/pjarczak_linux_plugin_bridge_core/CurrentBambuNetworking.hpp"
-#else
-#include "../bambu_networking.hpp"
-#endif
 
 namespace Slic3r::PJarczakLinuxBridge {
 
