@@ -149,6 +149,15 @@ int BBLNetworkPlugin::initialize(bool using_backup, const std::string& version)
     const bool bridge_requested = PJarczakLinuxBridge::enabled()
                                && PJarczakLinuxBridge::use_bridge_network_module();
     if (bridge_requested) {
+        // Supply the Linux host the user-installed ELF path. Set only in the
+        // explicit opt-in bridge mode; normal Orca launches are unchanged.
+#if defined(_MSC_VER) || defined(_WIN32)
+        _putenv_s("PJARCZAK_BAMBU_PLUGIN_DIR", plugin_folder.string().c_str());
+        _putenv_s("PJARCZAK_EXPECTED_BAMBU_NETWORK_VERSION", get_latest_network_version());
+#else
+        setenv("PJARCZAK_BAMBU_PLUGIN_DIR", plugin_folder.string().c_str(), 1);
+        setenv("PJARCZAK_EXPECTED_BAMBU_NETWORK_VERSION", get_latest_network_version(), 1);
+#endif
         // The bridge belongs to the application bundle; the proprietary ELF
         // belongs in the user's plug-in directory. Do not confuse the two.
         library = PJarczakLinuxBridge::bridge_network_library_path(plugin_folder);
