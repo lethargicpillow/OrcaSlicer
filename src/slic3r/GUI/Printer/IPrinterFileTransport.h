@@ -34,8 +34,15 @@ public:
         std::size_t          size   = 0;
     };
 
-    // Matches Bambu's Logger signature.
-    using LogFn = void (*)(void* context, int level, char const* msg);
+    // Bambu_Tunnel's Logger uses wchar_t on Windows and char elsewhere.
+    // Keep the FTPS and Bambu transports type-compatible without coupling
+    // this generic interface to the dynamically loaded Bambu_Tunnel library.
+#ifdef _WIN32
+    using LogChar = wchar_t;
+#else
+    using LogChar = char;
+#endif
+    using LogFn = void (*)(void* context, int level, LogChar const* msg);
 
     virtual ~IPrinterFileTransport() = default;
 
@@ -60,7 +67,7 @@ public:
     virtual bool IsOpen() const                                     = 0;
 
     virtual void SetLogger(LogFn fn, void* context)                 = 0;
-    virtual void FreeLogMsg(char const* msg)                        = 0;
+    virtual void FreeLogMsg(LogChar const* msg)                     = 0;
 };
 
 #endif

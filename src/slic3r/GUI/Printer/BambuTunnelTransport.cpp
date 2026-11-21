@@ -1,6 +1,12 @@
 #include "BambuTunnelTransport.h"
 
+#include <type_traits>
 #include <utility>
+
+static_assert(std::is_same<IPrinterFileTransport::LogFn, Logger>::value,
+              "BambuTunnel logger callback must match the native Bambu_Tunnel ABI");
+static_assert(std::is_same<IPrinterFileTransport::LogChar, tchar>::value,
+              "BambuTunnel log message character type must match tchar");
 
 BambuTunnelTransport::BambuTunnelTransport(std::string url, BambuLib const& lib)
     : m_url(std::move(url)), m_lib(lib)
@@ -77,7 +83,7 @@ void BambuTunnelTransport::SetLogger(LogFn fn, void* context)
         m_lib.Bambu_SetLogger(m_tunnel, fn, context);
 }
 
-void BambuTunnelTransport::FreeLogMsg(char const* msg)
+void BambuTunnelTransport::FreeLogMsg(LogChar const* msg)
 {
     m_lib.Bambu_FreeLogMsg(msg);
 }

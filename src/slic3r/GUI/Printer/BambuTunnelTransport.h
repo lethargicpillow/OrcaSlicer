@@ -26,7 +26,7 @@ public:
     bool IsOpen() const override { return m_tunnel != nullptr; }
 
     void SetLogger(LogFn fn, void* context) override;
-    void FreeLogMsg(char const* msg) override;
+    void FreeLogMsg(LogChar const* msg) override;
 
 private:
     std::string  m_url;

@@ -386,7 +386,7 @@ void FtpsTransport::SetLogger(LogFn fn, void* context)
     m_log_ctx = context;
 }
 
-void FtpsTransport::FreeLogMsg(char const* /*msg*/) {}
+void FtpsTransport::FreeLogMsg(LogChar const* /*msg*/) {}
 
 void FtpsTransport::WorkerLoop()
 {

@@ -37,7 +37,7 @@ public:
     bool IsOpen() const override { return m_open; }
 
     void SetLogger(LogFn fn, void* context) override;
-    void FreeLogMsg(char const* msg) override;
+    void FreeLogMsg(LogChar const* msg) override;
 
 private:
     struct PendingRequest {
