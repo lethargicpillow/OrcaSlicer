@@ -7,6 +7,11 @@
 #include "../../src/slic3r/Utils/bambu_networking.hpp"
 #endif
 
+#ifndef PJARCZAK_BBL_NAMESPACE_ALIAS_DEFINED
+#define PJARCZAK_BBL_NAMESPACE_ALIAS_DEFINED
+namespace BBL = Slic3r;
+#endif
+
 namespace Slic3r::PJarczakLinuxBridge::JsonBridge {
 
 inline nlohmann::json to_json(const BBL::PrintParams& p)
