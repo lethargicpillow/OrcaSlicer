@@ -1908,8 +1908,18 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
 
     if (pro_fn)
         pro_fn(InstallStatusInstallCompleted, 100, cancel);
-    if (name == "plugins")
+    if (name == "plugins") {
         app_config->set_bool("installed_networking", true);
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+        if (linux_bridge_payload) {
+            // This bridge exports the Current (02.08.04) signatures only.
+            // Do not leave an older native version selected after installing
+            // its unversioned Linux payload.
+            app_config->set_network_plugin_version(get_latest_network_version());
+            app_config->save();
+        }
+#endif
+    }
     BOOST_LOG_TRIVIAL(info) << "[install_plugin] success";
     return 0;
 }
@@ -4085,7 +4095,12 @@ bool GUI_App::install_network_plugin_from_ota(bool& had_cache)
             return false;
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Copying network library from " << network_library << " to " << network_library_dst << " successfully.";
 
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+        app_config->set_network_plugin_version(
+            bridge_payload ? get_latest_network_version() : cached_version);
+#else
         app_config->set_network_plugin_version(cached_version);
+#endif
         app_config->save();
     }
 
