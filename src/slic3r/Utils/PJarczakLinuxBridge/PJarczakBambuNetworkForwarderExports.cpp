@@ -100,13 +100,26 @@ static void ensure_event_pump()
     EventPump::instance().ensure_started();
 }
 
+// A transport failure or an unhandled RPC method must never be reported as
+// successful print/upload/bind/callback completion.
+static int rpc_status_or_error(const nlohmann::json& j)
+{
+    if (!j.is_object() || !j.value("ok", false))
+        return BAMBU_NETWORK_ERR_INVALID_RESULT;
+    if (j.contains("value") && j["value"].is_number_integer())
+        return j["value"].get<int>();
+    if (j.contains("ret") && j["ret"].is_number_integer())
+        return j["ret"].get<int>();
+    return BAMBU_NETWORK_ERR_INVALID_RESULT;
+}
+
 static int register_remote_callback(const char* method, BridgeAgent* a)
 {
     if (!a)
         return invalid_handle();
     ensure_event_pump();
     const auto j = ok_or_error(RpcClient::instance().invoke_json(method, {{"agent", agent_id(a)}}));
-    return j.value("value", j.value("ret", 0));
+    return rpc_status_or_error(j);
 }
 
 static std::atomic<std::int64_t> g_next_job_id{1};
@@ -149,7 +162,7 @@ static int invoke_job_update_only(const char* method, const char* kind, BridgeAg
     register_job_state(a, job);
     const auto j = ok_or_error(RpcClient::instance().invoke_json(method, {{"agent", agent_id(a)}, {"client_job_id", job->job_id}, {"params", payload}}));
     unregister_job_state(a, job->job_id);
-    return j.value("value", j.value("ret", 0));
+    return rpc_status_or_error(j);
 }
 
 static int invoke_job_with_wait(const char* method, const char* kind, BridgeAgent* a, const nlohmann::json& params, BBL::OnUpdateStatusFn update, BBL::WasCancelledFn cancel, BBL::OnWaitFn wait, std::string* out)
@@ -169,7 +182,7 @@ static int invoke_job_with_wait(const char* method, const char* kind, BridgeAgen
     if (out && j.contains("out"))
         *out = j.value("out", std::string());
     unregister_job_state(a, job->job_id);
-    return j.value("value", j.value("ret", 0));
+    return rpc_status_or_error(j);
 }
 
 static std::map<std::string, std::string> clone_string_map(const std::map<std::string, std::string>* in)
@@ -182,7 +195,7 @@ static int invoke_string_callback(const char* method, BridgeAgent* a, const nloh
     if (!a)
         return invalid_handle();
     const auto j = ok_or_error(RpcClient::instance().invoke_json(method, payload));
-    const int ret = j.value("value", j.value("ret", 0));
+    const int ret = rpc_status_or_error(j);
     if (ret == 0 && fn && j.contains("result"))
         fn(j.value("result", std::string()));
     return ret;
@@ -193,7 +206,7 @@ static int invoke_string_int_callback(const char* method, BridgeAgent* a, const 
     if (!a)
         return invalid_handle();
     const auto j = ok_or_error(RpcClient::instance().invoke_json(method, payload));
-    const int ret = j.value("value", j.value("ret", 0));
+    const int ret = rpc_status_or_error(j);
     if (ret == 0 && fn)
         fn(j.value("result", std::string()), j.value("status", 0));
     return ret;
@@ -235,7 +248,7 @@ static int invoke_progress_job(const char* method, const char* kind, BridgeAgent
     start_cancel_watch(job);
     const auto j = ok_or_error(RpcClient::instance().invoke_json(method, {{"agent", agent_id(a)}, {"client_job_id", job->job_id}, {"params", payload}}));
     unregister_job_state(a, job->job_id);
-    return j.value("value", j.value("ret", 0));
+    return rpc_status_or_error(j);
 }
 
 static int invoke_progress_check_job(const char* method, const char* kind, BridgeAgent* a, const nlohmann::json& payload, BBL::CheckFn check, BBL::ProgressFn progress, BBL::WasCancelledFn cancel)
@@ -252,7 +265,7 @@ static int invoke_progress_check_job(const char* method, const char* kind, Bridg
     start_cancel_watch(job);
     const auto j = ok_or_error(RpcClient::instance().invoke_json(method, {{"agent", agent_id(a)}, {"client_job_id", job->job_id}, {"params", payload}}));
     unregister_job_state(a, job->job_id);
-    return j.value("value", j.value("ret", 0));
+    return rpc_status_or_error(j);
 }
 
 }
