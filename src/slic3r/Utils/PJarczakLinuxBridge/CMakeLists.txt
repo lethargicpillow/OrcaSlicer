@@ -13,6 +13,10 @@ set(PJARCZAK_LINUX_BRIDGE_INCLUDE_DIRS
     ${PJARCZAK_REPO_ROOT}
     ${PJARCZAK_REPO_ROOT}/src
     ${PJARCZAK_REPO_ROOT}/deps_src
+    # libslic3r.h includes this configure_file() output. Unlike targets
+    # linking libslic3r, the standalone bridge does not inherit its PUBLIC
+    # binary include directory, so its direct build must declare it.
+    ${CMAKE_BINARY_DIR}/src/libslic3r
 )
 
 if (WIN32)
