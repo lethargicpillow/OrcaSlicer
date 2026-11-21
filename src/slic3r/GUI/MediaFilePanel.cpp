@@ -534,7 +534,7 @@ void MediaFilePanel::fetchUrl(boost::weak_ptr<PrinterFileSystem> wfs)
         fs->SetUrl(url);
         return;
     }
-    if (!m_remote_proto && m_local_proto) { // not support tutk
+    if (!m_remote_proto && m_local_proto && !(m_lan_mode && m_printer_type == "C13")) { // not support tutk
         m_image_grid->SetStatus(m_bmp_failed, _L("Please enter the IP of the printer to connect."));
         fs->SetUrl("0");
         fs.reset();
