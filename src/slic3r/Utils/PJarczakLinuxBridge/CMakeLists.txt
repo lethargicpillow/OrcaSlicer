@@ -92,6 +92,20 @@ if (UNIX AND NOT APPLE AND EXISTS "${PJARCZAK_LINUX_HOST_DIR}/main.cpp" AND EXIS
     install(TARGETS pjarczak_bambu_linux_host_abi1 pjarczak_bambu_linux_host_abi0
         RUNTIME DESTINATION "."
     )
+
+    # The launcher expects an executable named pjarczak_bambu_linux_host,
+    # not either ABI-specific binary. Package the existing ABI-probing
+    # dispatcher next to the host variants in both the build and install.
+    set(PJARCZAK_HOST_DISPATCHER
+        "${CMAKE_SOURCE_DIR}/tools/pjarczak_bambu_runtime/wsl/pjarczak_bambu_linux_host")
+    add_custom_command(TARGET pjarczak_bambu_linux_host_abi1 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PJARCZAK_HOST_DISPATCHER}"
+            "$<TARGET_FILE_DIR:pjarczak_bambu_linux_host_abi1>/pjarczak_bambu_linux_host"
+        VERBATIM)
+    install(PROGRAMS "${PJARCZAK_HOST_DISPATCHER}"
+        DESTINATION "."
+        RENAME pjarczak_bambu_linux_host)
 endif()
 
 if (APPLE)
