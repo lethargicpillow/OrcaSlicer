@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 #if defined(PJARCZAK_LINUX_BRIDGE_STANDALONE_HOST)
-#include "LegacyBambuNetworking.hpp"
+#include "CurrentBambuNetworking.hpp"
 #else
 #include "../../src/slic3r/Utils/bambu_networking.hpp"
 #endif
