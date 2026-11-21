@@ -574,3 +574,9 @@ enum class MessageFlag : int
 }
 
 #endif
+
+// The bridge's original internal code uses BBL as shorthand for Slic3r.
+#ifndef PJARCZAK_BBL_NAMESPACE_ALIAS_DEFINED
+#define PJARCZAK_BBL_NAMESPACE_ALIAS_DEFINED
+namespace BBL = Slic3r;
+#endif
