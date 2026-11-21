@@ -897,6 +897,9 @@ if (ORCA_BAMBU_NETWORK_BRIDGE)
         Utils/PJarczakLinuxBridge/PJarczakLinuxBridgeConfig.cpp
     )
     add_subdirectory(Utils/PJarczakLinuxBridge)
+    # Compile-time guard for BBLNetworkPlugin; runtime also requires the
+    # PJARCZAK_LINUX_BRIDGE_ENABLED=1 opt-in.
+    add_compile_definitions(ORCA_BAMBU_NETWORK_BRIDGE=1)
 endif()
 
 if (WIN32)
