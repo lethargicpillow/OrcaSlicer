@@ -21,6 +21,10 @@ on:
           required: false
           type: boolean
           default: false
+        bambu-bridge:
+          required: false
+          type: boolean
+          default: false
 
 jobs:
   build_orca:
@@ -796,12 +800,24 @@ jobs:
           # access here too. The Flatpak gets them from its SDK's default
           # flags and was the only leg catching those on pull requests, which
           # build it only on request.
-          ORCA_EXTRA_BUILD_ARGS: -DSLIC3R_GLIBCXX_ASSERTIONS=ON
+          ORCA_EXTRA_BUILD_ARGS: ${{ inputs.bambu-bridge && '-DSLIC3R_GLIBCXX_ASSERTIONS=ON -DORCA_BAMBU_NETWORK_BRIDGE=ON' || '-DSLIC3R_GLIBCXX_ASSERTIONS=ON' }}
         run: |
           # Build + tar the unit tests (-t) on both Linux legs so each arch
           # (x86_64 + aarch64) gets tested by its own unit_tests_linux_* job.
           # -P ships the system preset caches into the package before the AppImage is packed from it.
           ./build_linux.sh -istrlLP
+          # A stock upstream image is not a usable LAN bridge release: prove
+          # the bridge, dispatcher and both host ABIs were actually packaged.
+          if [[ '${{ inputs.bambu-bridge }}' == true ]]; then
+            for name in libpjarczak_bambu_networking_bridge.so pjarczak_bambu_linux_host pjarczak_bambu_linux_host_abi1 pjarczak_bambu_linux_host_abi0; do
+              test -f "build/package/bin/$name" || { echo "::error::Bridge runtime missing: $name"; exit 1; }
+            done
+            test -x build/package/bin/pjarczak_bambu_linux_host
+            test -x build/package/bin/pjarczak_bambu_linux_host_abi1
+            test -x build/package/bin/pjarczak_bambu_linux_host_abi0
+            test ! -e build/package/bin/libbambu_networking.so
+            test ! -e build/package/bin/libBambuSource.so
+          fi
           ./scripts/check_appimage_libs.sh ./build/package ./build/package/bin/orca-slicer
           appimage=./build/OrcaSlicer_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage
           mv -n ./build/OrcaSlicer_Linux_V${{ env.ver_pure }}.AppImage "$appimage"

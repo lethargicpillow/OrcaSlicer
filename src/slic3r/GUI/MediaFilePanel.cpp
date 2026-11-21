@@ -1,4 +1,7 @@
 #include "MediaFilePanel.h"
+
+#include <set>
+
 #include "ImageGrid.h"
 #include "I18N.hpp"
 #include "GUI_App.hpp"
@@ -267,6 +270,7 @@ void MediaFilePanel::UpdateByObj(MachineObject* obj)
         m_lan_mode     = obj->is_lan_mode_printer();
         m_lan_ip       = obj->get_dev_ip();
         m_lan_passwd   = obj->get_access_code();
+        m_printer_type = obj->printer_type;
         m_dev_ver      = obj->get_ota_version();
         m_device_busy  = obj->is_camera_busy_off();
         m_local_proto  = obj->file_local;
@@ -281,6 +285,7 @@ void MediaFilePanel::UpdateByObj(MachineObject* obj)
         m_lan_mode  = false;
         m_lan_ip.clear();
         m_lan_passwd.clear();
+        m_printer_type.clear();
         m_dev_ver.clear();
         m_device_busy = false;
         m_local_proto = 0;
@@ -499,7 +504,9 @@ void MediaFilePanel::fetchUrl(boost::weak_ptr<PrinterFileSystem> wfs)
         return;
     }
     m_waiting_enable = false;
-    if (!m_local_proto && !m_remote_proto) {
+    // X1E's firmware may advertise no tunnel file service, while FTPS
+    // is available in LAN Only mode. Do not reject it before the FTPS path.
+    if (!m_local_proto && !m_remote_proto && !(m_lan_mode && m_printer_type == "C13")) {
         m_waiting_support = true;
         m_image_grid->SetStatus(m_bmp_failed, _L("Browsing file in storage is not supported in current firmware. Please update the printer firmware."));
         fs->SetUrl("0");
@@ -514,7 +521,10 @@ void MediaFilePanel::fetchUrl(boost::weak_ptr<PrinterFileSystem> wfs)
     m_waiting_support = false;
     NetworkAgent *agent = wxGetApp().getAgent();
     std::string  agent_version = agent ? agent->get_version() : "";
-    if ((m_lan_mode || !m_remote_proto) && m_local_proto && !m_lan_ip.empty()) {
+    // Prefer the tested FTPS path for X1E even if the firmware advertises
+    // an old Bambu local-tunnel capability, which may not be implemented.
+    if ((m_lan_mode || !m_remote_proto) && m_local_proto && !m_lan_ip.empty()
+        && !(m_lan_mode && m_printer_type == "C13")) {
         std::string url = "bambu:///local/" + m_lan_ip + ".?port=6000&user=" + m_lan_user + "&passwd=" + m_lan_passwd;
         url += "&device=" + m_machine;
         url += "&net_ver=" + agent_version;
@@ -524,7 +534,7 @@ void MediaFilePanel::fetchUrl(boost::weak_ptr<PrinterFileSystem> wfs)
         fs->SetUrl(url);
         return;
     }
-    if (!m_remote_proto && m_local_proto) { // not support tutk
+    if (!m_remote_proto && m_local_proto && !(m_lan_mode && m_printer_type == "C13")) { // not support tutk
         m_image_grid->SetStatus(m_bmp_failed, _L("Please enter the IP of the printer to connect."));
         fs->SetUrl("0");
         fs.reset();
@@ -535,6 +545,38 @@ void MediaFilePanel::fetchUrl(boost::weak_ptr<PrinterFileSystem> wfs)
         return;
     }
     if (m_lan_mode) {
+        // Bambu printers in LAN-only / Developer Mode expose implicit FTPS on
+        // port 990 (user "bblp", password = access code). FtpsTransport
+        // synthesizes Bambu-shaped JSON responses on top.
+        //
+        // The on-printer filesystem layout is firmware-family-specific (X1/X1C
+        // serve files at FTP root with /timelapse/ for recordings; P1P/P1S
+        // use a /sdcard/ prefix; later models may differ again). Right now
+        // FtpsTransport hardcodes the X1/X1C layout, so gate the path on
+        // known-supported models and fall back to the original "not
+        // supported" message otherwise. To enable a new model, verify its
+        // layout and add it here AND extend FtpsTransport::FolderForType.
+        static const std::set<std::string> kFtpsSupportedTypes = {
+            "BL-P001", // X1
+            "BL-P002", // X1C
+            "C13",     // X1E, tested LAN FTPS on firmware 01.02
+        };
+        bool ftps_supported = kFtpsSupportedTypes.count(m_printer_type) > 0;
+        if (ftps_supported && !m_lan_ip.empty() && !m_lan_passwd.empty()) {
+            // IPv6 literals must be bracketed in URLs. Bambu LAN discovery is
+            // IPv4 today but bracketing is cheap insurance.
+            std::string host = (m_lan_ip.find(':') != std::string::npos)
+                                   ? "[" + m_lan_ip + "]"
+                                   : m_lan_ip;
+            std::string url  = "ftps://bblp:" + wxGetApp().url_encode(m_lan_passwd)
+                              + "@" + host + ":990/";
+            // Don't log the URL (carries the access code in cleartext —
+            // hide_passwd's matching rules don't cover the user:pass@ form).
+            BOOST_LOG_TRIVIAL(info) << "MediaFilePanel::fetchUrl: ftps://"
+                                    << host << ":990/ (model " << m_printer_type << ")";
+            fs->SetUrl(url);
+            return;
+        }
         m_image_grid->SetStatus(m_bmp_failed, _L("Browsing file in storage is not supported in LAN Only Mode."));
         fs->SetUrl("0");
         return;

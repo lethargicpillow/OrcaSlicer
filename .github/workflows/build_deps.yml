@@ -26,6 +26,10 @@ on:
       force-build:
         required: false
         type: boolean
+      bambu-bridge:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build_deps:
@@ -189,4 +193,5 @@ jobs:
       os: ${{ inputs.os }}
       arch: ${{ inputs.arch }}
       compiler: ${{ inputs.compiler }}
+      bambu-bridge: ${{ inputs.bambu-bridge }}
     secrets: inherit

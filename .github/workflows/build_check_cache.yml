@@ -19,6 +19,10 @@ on:
       force-build:
         required: false
         type: boolean
+      bambu-bridge:
+        required: false
+        type: boolean
+        default: false
   
 # Read by scripts/ci_deps_cache.sh and scripts/ci_macos_admission.py.
 env:
@@ -198,4 +202,5 @@ jobs:
       compiler: ${{ inputs.compiler }}
       build-deps-only: ${{ inputs.build-deps-only }}
       force-build: ${{ inputs.force-build }}
+      bambu-bridge: ${{ inputs.bambu-bridge }}
     secrets: inherit

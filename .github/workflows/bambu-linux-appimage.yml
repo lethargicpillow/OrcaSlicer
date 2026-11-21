@@ -19,7 +19,6 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/feature/bambulab-network'
     name: Build bridge-enabled Linux x86_64 AppImage
     uses: ./.github/workflows/build_check_cache.yml
     with:

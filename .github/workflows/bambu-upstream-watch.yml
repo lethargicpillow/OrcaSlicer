@@ -44,7 +44,7 @@ jobs:
               'Official tag: ' + tag,
               '',
               'This is a review task, NOT an automatic merge.',
-              'Review upstream changes against feature/bambulab-network.',
+              'Review upstream changes against main (canonical X1E LAN-only fork).',
               'Check BambuNetwork ABI compatibility and build Linux bridge/Host.',
               'Test X1E LAN Only, printer controls, AMS, camera, slicing/printing,',
               'GUI responsiveness and plugin lifecycle before publishing.',

@@ -3803,6 +3803,16 @@ void StatusPanel::update_basic_print_data(bool def)
 
 void StatusPanel::update_model_info()
 {
+    // get_subtask() requests cloud-only model metadata. A LAN Only device can
+    // report a nonzero task id via local MQTT even when no cloud session
+    // exists. The Linux plug-in bridge currently waits synchronously for its
+    // asynchronous callback; invoking it from this GUI timer blocks the GTK
+    // main thread (especially when the cloud returns HTTP 401).
+    // The LAN status, task name, progress and AMS data come from local MQTT,
+    // so don't request cloud-only metadata for LAN printers.
+    if (obj && obj->is_lan_mode_printer())
+        return;
+
     auto get_subtask_fn = [this](BBLModelTask* subtask) {
         CallAfter([this, subtask]() {
             if (obj && obj->subtask_id_ == subtask->task_id) {

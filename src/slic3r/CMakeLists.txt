@@ -477,6 +477,12 @@ set(SLIC3R_GUI_SOURCES
     GUI/PrimitiveSizeDialog.hpp
     GUI/PrinterCloudAuthDialog.cpp
     GUI/PrinterCloudAuthDialog.hpp
+    # LAN-only / Developer Mode FTPS adapter (independent of Bambu Cloud).
+    GUI/Printer/IPrinterFileTransport.h
+    GUI/Printer/BambuTunnelTransport.cpp
+    GUI/Printer/BambuTunnelTransport.h
+    GUI/Printer/FtpsTransport.cpp
+    GUI/Printer/FtpsTransport.h
     GUI/Printer/PrinterFileSystem.cpp
     GUI/Printer/PrinterFileSystem.h
     GUI/PrinterWebView.cpp
@@ -888,6 +894,21 @@ endif ()
 
 add_subdirectory(GUI/DeviceCore)
 add_subdirectory(GUI/DeviceTab)
+
+# Experimental out-of-process BambuNetwork adapter. Disabled until ABI/host
+# parity and real-printer tests pass; default Orca behaviour is unchanged.
+option(ORCA_BAMBU_NETWORK_BRIDGE "Build the experimental BambuNetwork RPC bridge" OFF)
+if (ORCA_BAMBU_NETWORK_BRIDGE)
+    # AppConfig lives in libslic3r, configured before the GUI directory.
+    target_compile_definitions(libslic3r PRIVATE ORCA_BAMBU_FORK_UPDATER=1)
+    list(APPEND SLIC3R_GUI_SOURCES
+        Utils/PJarczakLinuxBridge/PJarczakLinuxBridgeConfig.cpp
+    )
+    add_subdirectory(Utils/PJarczakLinuxBridge)
+    # Compile-time guard for BBLNetworkPlugin; runtime also requires the
+    # PJARCZAK_LINUX_BRIDGE_ENABLED=1 opt-in.
+    add_compile_definitions(ORCA_BAMBU_NETWORK_BRIDGE=1)
+endif()
 
 if (WIN32)
     list(APPEND SLIC3R_GUI_SOURCES

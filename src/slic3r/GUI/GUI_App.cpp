@@ -18,6 +18,9 @@
 #include "slic3r/Utils/BBLCloudServiceAgent.hpp"
 #include "slic3r/Utils/CloudDeleteQueue.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+#include "slic3r/Utils/PJarczakLinuxBridge/PJarczakLinuxBridgeConfig.hpp"
+#endif
 #include "GUI_Init.hpp"
 #include "GUI_ObjectList.hpp"
 #include "slic3r/GUI/UserManager.hpp"
@@ -1461,6 +1464,13 @@ int GUI_App::download_plugin(std::string name, std::string package_name, Install
 #else
     std::string os_type = "windows";
 #endif
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    // The isolated host always loads a Linux ELF payload regardless of the
+    // GUI's operating system. Use request-local headers, never mutate global
+    // Http defaults (which would also affect unrelated cloud operations).
+    if (name == "plugins" && PJarczakLinuxBridge::enabled())
+        os_type = PJarczakLinuxBridge::forced_download_os_type();
+#endif
 
     // get_url
     std::string  url = get_plugin_url(name, app_config->get_country_code());
@@ -1609,6 +1619,11 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
     std::string target_file_path = (fs::temp_directory_path() / package_name).string();
 
     BOOST_LOG_TRIVIAL(info) << "[install_plugin] enter";
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    const bool linux_bridge_payload = name == "plugins" && PJarczakLinuxBridge::enabled();
+#else
+    const bool linux_bridge_payload = false;
+#endif
     // get plugin folder
     std::string data_dir_str = data_dir();
     boost::filesystem::path data_dir_path(data_dir_str);
@@ -1642,7 +1657,7 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
 
     boost::filesystem::path legacy_lib_path, legacy_lib_backup;
     bool had_existing_legacy = false;
-    if (name == "plugins") {
+    if (name == "plugins" && !linux_bridge_payload) {
 #if defined(_MSC_VER) || defined(_WIN32)
         legacy_lib_path = plugin_folder / (std::string(BAMBU_NETWORK_LIBRARY) + ".dll");
 #elif defined(__WXMAC__)
@@ -1685,12 +1700,26 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
                     size_t n = mz_zip_reader_get_extra(&archive, stat.m_file_index, extra.data(), extra.size());
                     dest_file = decode(extra.substr(0, n), stat.m_filename);
                 }
+                // Check the ORIGINAL archive path before flattening it.
+                // A malicious ../ entry must not become a trusted basename.
                 if (!is_path_within_root(dest_file, plugin_folder)) {
                     BOOST_LOG_TRIVIAL(error) << "[install_plugin] entry " << dest_file << " resolves outside " << plugin_folder.string();
                     close_zip_reader(&archive);
                     if (pro_fn) { pro_fn(InstallStatusUnzipFailed, 0, cancel); }
                     return InstallStatusUnzipFailed;
                 }
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+                if (linux_bridge_payload) {
+                    const std::string file_name = boost::filesystem::path(dest_file).filename().string();
+                    // The Linux host needs ELF networking and source libraries;
+                    // Windows/macOS shared libraries must not shadow them.
+                    if (!PJarczakLinuxBridge::is_linux_payload_filename(file_name) &&
+                        file_name != "liblive555.so" &&
+                        file_name != PJarczakLinuxBridge::linux_payload_manifest_file_name())
+                        continue;
+                    dest_file = file_name;
+                }
+#endif
                 auto dest_path = plugin_folder / dest_file;
 #ifndef WIN32
                 // Validate a symlink's target before anything at the destination is replaced.
@@ -1779,7 +1808,7 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
 
     close_zip_reader(&archive);
 
-    if (name == "plugins") {
+    if (name == "plugins" && !linux_bridge_payload) {
         std::string config_version = app_config->get_network_plugin_version();
         if (config_version.empty()) {
             config_version = get_latest_network_version();
@@ -1819,6 +1848,30 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
         }
     }
 
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    if (linux_bridge_payload) {
+        // Validate ELF headers and optional hashes before exposing the payload
+        // to a host process. Fail closed on incomplete/mismatched installs.
+        std::string reason;
+        for (const auto& name : {
+                PJarczakLinuxBridge::linux_network_library_name(),
+                PJarczakLinuxBridge::linux_source_library_name()}) {
+            if (!PJarczakLinuxBridge::validate_linux_payload_file((plugin_folder / name).string(), &reason)) {
+                BOOST_LOG_TRIVIAL(error) << "[install_plugin] bridge payload validation failed for "
+                                         << name << ": " << reason;
+                if (pro_fn) pro_fn(InstallStatusUnzipFailed, 0, cancel);
+                return InstallStatusUnzipFailed;
+            }
+        }
+        if (boost::filesystem::exists(plugin_folder / PJarczakLinuxBridge::linux_payload_manifest_file_name()) &&
+            !PJarczakLinuxBridge::validate_linux_payload_set_against_manifest(plugin_folder, &reason)) {
+            BOOST_LOG_TRIVIAL(error) << "[install_plugin] bridge manifest invalid: " << reason;
+            if (pro_fn) pro_fn(InstallStatusUnzipFailed, 0, cancel);
+            return InstallStatusUnzipFailed;
+        }
+    }
+#endif
+
     {
         fs::path dir_path(plugin_folder);
         if (fs::exists(dir_path) && fs::is_directory(dir_path)) {
@@ -1855,8 +1908,18 @@ int GUI_App::install_plugin(std::string name, std::string package_name, InstallP
 
     if (pro_fn)
         pro_fn(InstallStatusInstallCompleted, 100, cancel);
-    if (name == "plugins")
+    if (name == "plugins") {
         app_config->set_bool("installed_networking", true);
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+        if (linux_bridge_payload) {
+            // This bridge exports the Current (02.08.04) signatures only.
+            // Do not leave an older native version selected after installing
+            // its unversioned Linux payload.
+            app_config->set_network_plugin_version(get_latest_network_version());
+            app_config->save();
+        }
+#endif
+    }
     BOOST_LOG_TRIVIAL(info) << "[install_plugin] success";
     return 0;
 }
@@ -3976,6 +4039,19 @@ bool GUI_App::install_network_plugin_from_ota(bool& had_cache)
     player_library_dst = plugin_folder.string() + "/libBambuSource.so";
     live555_library_dst = plugin_folder.string() + "/liblive555.so";
 #endif
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    const bool bridge_payload = PJarczakLinuxBridge::enabled();
+    if (bridge_payload) {
+        network_library = (cache_folder / PJarczakLinuxBridge::linux_network_library_name()).string();
+        player_library = (cache_folder / PJarczakLinuxBridge::linux_source_library_name()).string();
+        live555_library = (cache_folder / "liblive555.so").string();
+        network_library_dst = (plugin_folder / PJarczakLinuxBridge::linux_network_library_name()).string();
+        player_library_dst = (plugin_folder / PJarczakLinuxBridge::linux_source_library_name()).string();
+        live555_library_dst = (plugin_folder / "liblive555.so").string();
+    }
+#else
+    const bool bridge_payload = false;
+#endif
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": checking network_library " << network_library << ", player_library " << player_library;
     if (!boost::filesystem::exists(plugin_folder)) {
@@ -4019,7 +4095,12 @@ bool GUI_App::install_network_plugin_from_ota(bool& had_cache)
             return false;
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Copying network library from " << network_library << " to " << network_library_dst << " successfully.";
 
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+        app_config->set_network_plugin_version(
+            bridge_payload ? get_latest_network_version() : cached_version);
+#else
         app_config->set_network_plugin_version(cached_version);
+#endif
         app_config->save();
     }
 
@@ -4034,6 +4115,17 @@ bool GUI_App::install_network_plugin_from_ota(bool& had_cache)
             return false;
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Copying live555 library from " << live555_library << " to " << live555_library_dst << " successfully.";
     }
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    if (bridge_payload) {
+        std::string reason;
+        if (!PJarczakLinuxBridge::validate_linux_payload_file(network_library_dst, &reason) ||
+            !PJarczakLinuxBridge::validate_linux_payload_file(player_library_dst, &reason)) {
+            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": invalid Linux bridge OTA payload: " << reason;
+            return false;
+        }
+    }
+#endif
+
     // All cached files consumed - drop the whole ota/plugins cache folder.
     try {
         if (boost::filesystem::exists(cache_folder))

@@ -1995,7 +1995,15 @@ bool AppConfig::peek_bool(const std::string &data_dir, const std::string &key)
 std::string AppConfig::version_check_url() const
 {
     auto from_settings = get("version_check_url");
+#if defined(ORCA_BAMBU_FORK_UPDATER)
+    // Keep bridge-enabled builds on the fork's release channel. Do not
+    // propose upstream binaries that lack the Linux BambuNetwork bridge.
+    // A user-specified version_check_url retains priority.
+    static const std::string fork_releases = "https://api.github.com/repos/lethargicpillow/OrcaSlicer/releases?per_page=30";
+    return from_settings.empty() ? fork_releases : from_settings;
+#else
     return from_settings.empty() ? VERSION_CHECK_URL : from_settings;
+#endif
 }
 
 std::string AppConfig::profile_update_url() const
