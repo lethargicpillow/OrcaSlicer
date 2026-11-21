@@ -666,7 +666,8 @@ if [[ -n "${BUILD_IMAGE}" || -n "${BUILD_ORCA}" ]] ; then
         if [[ -n "${SHIP_PRESET_CACHES}" ]] ; then
             extra_script_args+=("-c")
         fi
-        print_and_run ${build_linux_image} "${extra_script_args[@]}" -R "${BUILD_CONFIG}"
+        # configure_file output may lack executable permissions; Bash is the stable entry point.
+        print_and_run bash "${build_linux_image}" "${extra_script_args[@]}" -R "${BUILD_CONFIG}"
 
         echo "done"
     fi
