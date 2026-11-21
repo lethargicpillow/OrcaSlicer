@@ -1,0 +1,69 @@
+name: Bambu Bridge Linux AppImage
+
+# Manual release candidate: no public release without hardware validation.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional draft release tag (e.g. v2.6.0); leave empty for Actions artifact'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: bambu-linux-appimage-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build bridge-enabled Linux x86_64 AppImage
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: ubuntu-24.04
+      arch: ''
+      bambu-bridge: true
+    secrets: inherit
+
+  draft:
+    name: Upload verified build to draft release
+    needs: build
+    if: ${{ inputs.release_tag != '' }}
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Download this run's AppImage
+        uses: actions/download-artifact@v8
+        with:
+          pattern: OrcaSlicer_Linux_ubuntu_*
+          merge-multiple: true
+          path: dist
+
+      - name: Create draft and upload assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t images < <(find dist -maxdepth 1 -type f -name '*.AppImage' | sort)
+          if [ "${#images[@]}" -ne 1 ]; then
+            echo "::error::Expected one AppImage, got ${#images[@]}"
+            exit 1
+          fi
+          chmod +x "${images[0]}"
+          sha256sum "${images[0]}" > dist/SHA256SUMS
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft --target "$GITHUB_SHA" \
+              --title "OrcaSlicer Bambu Bridge $RELEASE_TAG" \
+              --notes "Experimental Linux x86_64 bridge. Test on X1E before publishing. No proprietary BambuNetwork binaries included."
+          fi
+          state="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')"
+          if [ "$state" != true ]; then
+            echo "::error::Refusing to overwrite a published release"
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${images[0]}" dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --clobber
