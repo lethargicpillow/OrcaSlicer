@@ -67,6 +67,10 @@ on:
         description: 'Only build dependencies (bypasses caching)'
         type: boolean
         default: false
+      bambu-bridge:
+        description: 'Include the Linux BambuNetwork bridge (x86_64 only)'
+        type: boolean
+        default: true
 
 concurrency:
   # cancel_closed_pr_builds.yml joins this group by name, so update that file
@@ -150,6 +154,9 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build-deps-only: ${{ inputs.build-deps-only || false }}
+      # The fork's x86_64 builds use the bridge. Upstream and aarch64 keep
+      # their native configurations; manual runs may disable the experiment.
+      bambu-bridge: ${{ matrix.arch != 'aarch64' && github.repository == 'lethargicpillow/OrcaSlicer' && (github.event_name != 'workflow_dispatch' || inputs.bambu-bridge) }}
     secrets: inherit
   build_windows:
     name: Build Windows ${{ matrix.arch }}

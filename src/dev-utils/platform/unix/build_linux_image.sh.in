@@ -207,6 +207,25 @@ echo -n "[9/9] Generating Linux app..."
     fi
     cp -fl "${ORIGINAL_BINARY_LOCATION}" "$BIN_DIR/@SLIC3R_APP_CMD@"
 
+    # The bridge library and host MUST be colocated. AppImage packaging
+    # bypasses cmake --install, so copy the built outputs explicitly.
+    # Proprietary BambuNetwork .so files are intentionally not redistributed.
+    if [ "@ORCA_BAMBU_NETWORK_BRIDGE@" = "ON" ]; then
+        BRIDGE_BUILD_DIR="$(dirname "${ORIGINAL_BINARY_LOCATION}")"
+        for name in \
+            libpjarczak_bambu_networking_bridge.so \
+            pjarczak_bambu_linux_host \
+            pjarczak_bambu_linux_host_abi1 \
+            pjarczak_bambu_linux_host_abi0; do
+            if [ ! -f "$BRIDGE_BUILD_DIR/$name" ]; then
+                echo "Error: required Bambu bridge binary is missing: $BRIDGE_BUILD_DIR/$name" >&2
+                exit 1
+            fi
+            cp -f "$BRIDGE_BUILD_DIR/$name" "$BIN_DIR/$name"
+        done
+        chmod +x "$BIN_DIR/pjarczak_bambu_linux_host" "$BIN_DIR/pjarczak_bambu_linux_host_abi1" "$BIN_DIR/pjarczak_bambu_linux_host_abi0"
+    fi
+
     # Bundle the embedded Python runtime (interpreter + stdlib) that CMake staged
     # next to the binary. OrcaSlicer resolves PYTHONHOME at <resources_dir>/../lib/python,
     # which is $APPDIR/lib/python (resources_dir is $APPDIR/resources). Staging it here,
@@ -420,6 +439,12 @@ cat << EOF >@SLIC3R_APP_CMD@
 #!/bin/bash
 DIR=\$(dirname "\$(readlink -f "\$0")")
 export APPDIR="\${APPDIR:-\$DIR}"
+
+# The bridge is an explicit property of this fork's AppImage. Stock images
+# have no bridge library and continue to use the native plug-in mechanism.
+if [ -f "\$DIR/bin/libpjarczak_bambu_networking_bridge.so" ]; then
+    export PJARCZAK_LINUX_BRIDGE_ENABLED="\${PJARCZAK_LINUX_BRIDGE_ENABLED:-1}"
+fi
 
 # FIXME: OrcaSlicer segfault workarounds
 # 1) OrcaSlicer will segfault on systems where locale info is not as expected (i.e. Holo-ISO arch-based distro)
