@@ -49,3 +49,7 @@ jobs:
         run: cmake -S tools/pjarczak_bambu_linux_host -B build/bambulab-host -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Compile both libstdc++ ABI variants
         run: cmake --build build/bambulab-host --target pjarczak_bambu_linux_host --parallel 2
+      - name: Exercise both standalone RPC transports without proprietary plug-in
+        run: |
+          python3 tools/pjarczak_bambu_linux_host/probe_lifecycle.py --scenario ping --abi abi1
+          python3 tools/pjarczak_bambu_linux_host/probe_lifecycle.py --scenario ping --abi abi0
