@@ -645,6 +645,25 @@ nlohmann::json LinuxPluginHost::not_supported(const std::string& method) const
 
 void LinuxPluginHost::queue_event(std::int64_t agent_handle, const std::string& name, const nlohmann::json& payload)
 {
+    // A successfully returned connect_printer() only starts asynchronous LAN
+    // connection. Trace callback types and numeric result codes to distinguish
+    // MQTT/authentication failure from an RPC deadlock, without printing
+    // IPs, device identifiers, access codes, tokens, or message contents.
+    if (const char* trace = std::getenv("PJARCZAK_BAMBU_RPC_TRACE"); trace && std::strcmp(trace, "1") == 0) {
+        if (name == "on_local_connect" || name == "on_printer_connected" ||
+            name == "on_ssdp_msg" || name == "on_server_connected" ||
+            name == "on_subscribe_failure" || name == "on_http_error") {
+            static std::mutex event_trace_mutex;
+            std::lock_guard<std::mutex> trace_lock(event_trace_mutex);
+            std::cerr << "[PJBRIDGE-EVENT] name=" << name;
+            for (const auto* field : {"status", "return_code", "reason_code", "http_code"}) {
+                auto it = payload.find(field);
+                if (it != payload.end() && it->is_number_integer())
+                    std::cerr << ' ' << field << '=' << it->get<long long>();
+            }
+            std::cerr << '\n';
+        }
+    }
     std::lock_guard<std::mutex> lock(m_events_mutex);
     m_events.push_back({{"agent", agent_handle}, {"name", name}, {"payload", payload}});
 }

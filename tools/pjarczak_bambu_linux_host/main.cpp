@@ -170,8 +170,16 @@ int main(int argc, char** argv)
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start).count();
             const bool ok = resp.is_object() && resp.value("ok", false);
+            // Distinguish a successful RPC envelope from a failed native call.
+            // Only include numeric result codes; never log string results.
+            std::string native_result;
+            if (resp.is_object() && resp.contains("value") && resp["value"].is_number_integer())
+                native_result = " value=" + std::to_string(resp["value"].get<long long>());
+            else if (resp.is_object() && resp.contains("ret") && resp["ret"].is_number_integer())
+                native_result = " ret=" + std::to_string(resp["ret"].get<long long>());
             trace("END id=" + std::to_string(req_id) + " method=" + req_method +
-                  " elapsed_ms=" + std::to_string(elapsed) + " ok=" + (ok ? "true" : "false"));
+                  " elapsed_ms=" + std::to_string(elapsed) + " ok=" + (ok ? "true" : "false") +
+                  native_result);
 
             std::vector<unsigned char> reply_binary;
             const bool has_reply_binary = LinuxPluginHost::consume_thread_reply_binary(reply_binary);
