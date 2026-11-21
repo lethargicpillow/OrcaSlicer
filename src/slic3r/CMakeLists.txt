@@ -477,6 +477,12 @@ set(SLIC3R_GUI_SOURCES
     GUI/PrimitiveSizeDialog.hpp
     GUI/PrinterCloudAuthDialog.cpp
     GUI/PrinterCloudAuthDialog.hpp
+    # LAN-only / Developer Mode FTPS adapter (independent of Bambu Cloud).
+    GUI/Printer/IPrinterFileTransport.h
+    GUI/Printer/BambuTunnelTransport.cpp
+    GUI/Printer/BambuTunnelTransport.h
+    GUI/Printer/FtpsTransport.cpp
+    GUI/Printer/FtpsTransport.h
     GUI/Printer/PrinterFileSystem.cpp
     GUI/Printer/PrinterFileSystem.h
     GUI/PrinterWebView.cpp

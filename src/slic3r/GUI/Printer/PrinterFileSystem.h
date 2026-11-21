@@ -14,6 +14,7 @@
 #include <boost/thread/lock_types.hpp>
 #define BAMBU_DYNAMIC
 #include "BambuTunnel.h"
+#include "IPrinterFileTransport.h"
 
 #include <wx/bitmap.h>
 #include <wx/event.h>
@@ -25,6 +26,7 @@
 
 #include <functional>
 #include <deque>
+#include <memory>
 
 wxDECLARE_EVENT(EVT_STATUS_CHANGED, wxCommandEvent);
 wxDECLARE_EVENT(EVT_MODE_CHANGED, wxCommandEvent);
@@ -356,7 +358,7 @@ private:
 
     void RecvMessageThread();
 
-    void HandleResponse(boost::unique_lock<boost::mutex> &l, Bambu_Sample const &sample);
+    void HandleResponse(boost::unique_lock<boost::mutex> &l, IPrinterFileTransport::Sample const &sample);
 
     void Reconnect(boost::unique_lock<boost::mutex> & l, int result);
 
@@ -390,12 +392,8 @@ private:
     std::vector<bool> m_download_states;
 
 private:
-    struct Session
-    {
-        Bambu_Tunnel tunnel = nullptr;
-        PrinterFileSystem * owner;
-    };
-    Session m_session;
+    std::unique_ptr<IPrinterFileTransport> m_transport;
+    bool m_quit = false; // set by Stop(quit=true) to make the recv thread exit
     boost::uint32_t m_sequence = 0;
     boost::uint32_t m_download_seq = 0;
     boost::uint32_t m_fetch_model_seq = 0;
@@ -409,6 +407,10 @@ private:
     boost::thread m_recv_thread;
     Status m_status;
     int m_last_error = 0;
+    // Consecutive Reconnect failures; reset to 0 on a successful Open. Used
+    // to back off the retry interval so a wrong access code or unreachable
+    // printer doesn't hammer the network (and the printer's ftpd) forever.
+    int m_reconnect_attempts = 0;
 
     MediaAbilityList m_media_ability_list;
     std::map<boost::uint32_t, callback_t3>  m_produce_message_cb_map;
