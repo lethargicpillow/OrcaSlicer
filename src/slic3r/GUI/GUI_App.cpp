@@ -18,6 +18,9 @@
 #include "slic3r/Utils/BBLCloudServiceAgent.hpp"
 #include "slic3r/Utils/CloudDeleteQueue.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+#include "slic3r/Utils/PJarczakLinuxBridge/PJarczakLinuxBridgeConfig.hpp"
+#endif
 #include "GUI_Init.hpp"
 #include "GUI_ObjectList.hpp"
 #include "slic3r/GUI/UserManager.hpp"
@@ -1460,6 +1463,13 @@ int GUI_App::download_plugin(std::string name, std::string package_name, Install
     std::string os_type = "linux";
 #else
     std::string os_type = "windows";
+#endif
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    // The isolated host always loads a Linux ELF payload regardless of the
+    // GUI's operating system. Use request-local headers, never mutate global
+    // Http defaults (which would also affect unrelated cloud operations).
+    if (name == "plugins" && PJarczakLinuxBridge::enabled())
+        os_type = PJarczakLinuxBridge::forced_download_os_type();
 #endif
 
     // get_url
