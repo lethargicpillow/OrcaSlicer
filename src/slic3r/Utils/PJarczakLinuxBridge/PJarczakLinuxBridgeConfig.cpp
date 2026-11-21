@@ -11,7 +11,11 @@
 #include <boost/filesystem/path.hpp>
 #include <openssl/sha.h>
 #include <nlohmann/json.hpp>
+#if defined(PJARCZAK_LINUX_BRIDGE_STANDALONE_HOST)
+#include "../../../../shared/pjarczak_linux_plugin_bridge_core/LegacyBambuNetworking.hpp"
+#else
 #include "../bambu_networking.hpp"
+#endif
 
 namespace Slic3r::PJarczakLinuxBridge {
 
