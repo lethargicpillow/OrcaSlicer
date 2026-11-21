@@ -4029,6 +4029,19 @@ bool GUI_App::install_network_plugin_from_ota(bool& had_cache)
     player_library_dst = plugin_folder.string() + "/libBambuSource.so";
     live555_library_dst = plugin_folder.string() + "/liblive555.so";
 #endif
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    const bool bridge_payload = PJarczakLinuxBridge::enabled();
+    if (bridge_payload) {
+        network_library = (cache_folder / PJarczakLinuxBridge::linux_network_library_name()).string();
+        player_library = (cache_folder / PJarczakLinuxBridge::linux_source_library_name()).string();
+        live555_library = (cache_folder / "liblive555.so").string();
+        network_library_dst = (plugin_folder / PJarczakLinuxBridge::linux_network_library_name()).string();
+        player_library_dst = (plugin_folder / PJarczakLinuxBridge::linux_source_library_name()).string();
+        live555_library_dst = (plugin_folder / "liblive555.so").string();
+    }
+#else
+    const bool bridge_payload = false;
+#endif
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": checking network_library " << network_library << ", player_library " << player_library;
     if (!boost::filesystem::exists(plugin_folder)) {
@@ -4087,6 +4100,17 @@ bool GUI_App::install_network_plugin_from_ota(bool& had_cache)
             return false;
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Copying live555 library from " << live555_library << " to " << live555_library_dst << " successfully.";
     }
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    if (bridge_payload) {
+        std::string reason;
+        if (!PJarczakLinuxBridge::validate_linux_payload_file(network_library_dst, &reason) ||
+            !PJarczakLinuxBridge::validate_linux_payload_file(player_library_dst, &reason)) {
+            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": invalid Linux bridge OTA payload: " << reason;
+            return false;
+        }
+    }
+#endif
+
     // All cached files consumed - drop the whole ota/plugins cache folder.
     try {
         if (boost::filesystem::exists(cache_folder))
