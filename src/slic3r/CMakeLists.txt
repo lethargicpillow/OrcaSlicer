@@ -889,6 +889,16 @@ endif ()
 add_subdirectory(GUI/DeviceCore)
 add_subdirectory(GUI/DeviceTab)
 
+# Experimental out-of-process BambuNetwork adapter. Disabled until ABI/host
+# parity and real-printer tests pass; default Orca behaviour is unchanged.
+option(ORCA_BAMBU_NETWORK_BRIDGE "Build the experimental BambuNetwork RPC bridge" OFF)
+if (ORCA_BAMBU_NETWORK_BRIDGE)
+    list(APPEND SLIC3R_GUI_SOURCES
+        Utils/PJarczakLinuxBridge/PJarczakLinuxBridgeConfig.cpp
+    )
+    add_subdirectory(Utils/PJarczakLinuxBridge)
+endif()
+
 if (WIN32)
     list(APPEND SLIC3R_GUI_SOURCES
             GUI/dark_mode/dark_mode.hpp
