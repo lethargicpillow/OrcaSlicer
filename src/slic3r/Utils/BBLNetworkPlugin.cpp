@@ -1,5 +1,8 @@
 #include "BBLNetworkPlugin.hpp"
 #include "NetworkAgent.hpp"
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+#include "PJarczakLinuxBridge/PJarczakLinuxBridgeConfig.hpp"
+#endif
 
 #include <mutex>
 #include <boost/filesystem/path.hpp>
@@ -142,12 +145,29 @@ int BBLNetworkPlugin::initialize(bool using_backup, const std::string& version)
     library = using_backup ? (plugin_folder / versioned_name).string()
                            : resolve_library_path(version);
 
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    const bool bridge_requested = PJarczakLinuxBridge::enabled()
+                               && PJarczakLinuxBridge::use_bridge_network_module();
+    if (bridge_requested)
+        library = PJarczakLinuxBridge::bridge_network_library_path(plugin_folder);
+#else
+    const bool bridge_requested = false;
+#endif
+
 #if defined(_MSC_VER) || defined(_WIN32)
     wchar_t lib_wstr[256];
     memset(lib_wstr, 0, sizeof(lib_wstr));
     ::MultiByteToWideChar(CP_UTF8, NULL, library.c_str(), strlen(library.c_str())+1, lib_wstr, sizeof(lib_wstr) / sizeof(lib_wstr[0]));
     m_networking_module = LoadLibrary(lib_wstr);
     if (!m_networking_module) {
+        // An explicit bridge selection must fail closed, not silently switch
+        // to a native DLL that may implement another ABI.
+        if (bridge_requested) {
+            set_load_error(_u8L("BambuNetwork bridge not found"),
+                           "Could not load experimental RPC bridge: " + library,
+                           library);
+            return -1;
+        }
         std::string library_path = get_libpath_in_current_directory(std::string(BAMBU_NETWORK_LIBRARY));
         if (library_path.empty()) {
             set_load_error(
@@ -197,6 +217,14 @@ int BBLNetworkPlugin::initialize(bool using_backup, const std::string& version)
     const std::string loaded_version = m_get_version ? m_get_version() : std::string();
     m_network_abi = network_plugin_abi(loaded_version.empty() ? version : loaded_version);
 
+    if (bridge_requested && (loaded_version.empty() || m_network_abi == NetworkAbi::Unsupported)) {
+        set_load_error(_u8L("Incompatible BambuNetwork bridge"),
+                       "Bridge host returned an unsupported or missing network ABI: " + loaded_version,
+                       library);
+        unload();
+        return -1;
+    }
+
     // A library reporting a series this build has no ABI for stays loaded but uncallable -
     // check_networking_version() then reports it as incompatible and offers the update flow.
     if (m_network_abi == NetworkAbi::Unsupported) {
@@ -225,25 +253,22 @@ int BBLNetworkPlugin::unload()
 
     UnloadFTModule();
 
+    // The bridge may route BambuSource symbols through the same module.
+    // Never release that dynamic-library handle twice.
+    const bool shared_handle = m_source_module && m_source_module == m_networking_module;
 #if defined(_MSC_VER) || defined(_WIN32)
-    if (m_networking_module) {
-        FreeLibrary(m_networking_module);
-        m_networking_module = NULL;
-    }
-    if (m_source_module) {
+    if (m_source_module && !shared_handle)
         FreeLibrary(m_source_module);
-        m_source_module = NULL;
-    }
+    if (m_networking_module)
+        FreeLibrary(m_networking_module);
 #else
-    if (m_networking_module) {
-        dlclose(m_networking_module);
-        m_networking_module = NULL;
-    }
-    if (m_source_module) {
+    if (m_source_module && !shared_handle)
         dlclose(m_source_module);
-        m_source_module = NULL;
-    }
+    if (m_networking_module)
+        dlclose(m_networking_module);
 #endif
+    m_source_module = nullptr;
+    m_networking_module = nullptr;
 
     clear_all_function_pointers();
 
@@ -328,6 +353,13 @@ void* BBLNetworkPlugin::get_source_module()
 {
     if ((m_source_module) || (!m_networking_module))
         return m_source_module;
+#if defined(ORCA_BAMBU_NETWORK_BRIDGE)
+    if (PJarczakLinuxBridge::enabled() &&
+        PJarczakLinuxBridge::source_module_is_network_module()) {
+        m_source_module = m_networking_module;
+        return m_source_module;
+    }
+#endif
 
     std::string library;
     std::string data_dir_str = data_dir();
