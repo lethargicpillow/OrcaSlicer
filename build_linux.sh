@@ -636,6 +636,12 @@ if [[ -n "${BUILD_ORCA}" ]] || [[ -n "${BUILD_TESTS}" ]] ; then
     if [[ -n "${BUILD_ORCA}" ]]; then
 	echo "Building OrcaSlicer ..."
 	print_and_run cmake --build $BUILD_DIR --config "${BUILD_CONFIG}" --target OrcaSlicer
+	# The bridge host is a separate executable, not a dependency of OrcaSlicer.
+	# Without this build, packaging a bridge-enabled AppImage would fail or
+	# accidentally pick up stale host binaries from a previous local build.
+	if [[ " ${BUILD_ARGS[*]} ${EXTRA_CMAKE_ARGS[*]} " == *"-DORCA_BAMBU_NETWORK_BRIDGE=ON"* ]]; then
+	    print_and_run cmake --build $BUILD_DIR --config "${BUILD_CONFIG}" --target pjarczak_bambu_linux_host
+	fi
 	echo "Building OrcaSlicer_profile_validator .."
 	print_and_run cmake --build $BUILD_DIR --config "${BUILD_CONFIG}" --target OrcaSlicer_profile_validator
 	echo "Building generate_system_cache ..."
