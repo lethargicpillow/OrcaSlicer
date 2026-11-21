@@ -4989,6 +4989,21 @@ void MachineObject::update_slice_info(std::string project_id, std::string profil
 {
     if (!m_agent) return;
 
+    // In LAN Only mode the printer reports task identifiers via local MQTT,
+    // but get_subtask_info() requests cloud-only task metadata. An offline
+    // device gets HTTP 401, and a stalled RPC request keeps the slice-info
+    // worker alive; free_slice_info() then joins it and can freeze the UI.
+    // Keep the local task identity and any locally supplied plate index,
+    // without launching a cloud request. Cloud-mode behavior is unchanged.
+    if (is_lan_mode_printer()) {
+        project_id_ = std::move(project_id);
+        profile_id_ = std::move(profile_id);
+        subtask_id_ = std::move(subtask_id);
+        if (plate_idx >= 0)
+            m_plate_index = plate_idx;
+        return;
+    }
+
     if (project_id_ != project_id || profile_id_ != profile_id || slice_info == nullptr || subtask_id_ != subtask_id) {
         project_id_ = project_id;
         profile_id_ = profile_id;
