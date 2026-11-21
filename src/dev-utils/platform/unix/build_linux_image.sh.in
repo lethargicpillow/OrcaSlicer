@@ -211,17 +211,20 @@ echo -n "[9/9] Generating Linux app..."
     # bypasses cmake --install, so copy the built outputs explicitly.
     # Proprietary BambuNetwork .so files are intentionally not redistributed.
     if [ "@ORCA_BAMBU_NETWORK_BRIDGE@" = "ON" ]; then
-        BRIDGE_BUILD_DIR="$(dirname "${ORIGINAL_BINARY_LOCATION}")"
         for name in \
             libpjarczak_bambu_networking_bridge.so \
             pjarczak_bambu_linux_host \
             pjarczak_bambu_linux_host_abi1 \
             pjarczak_bambu_linux_host_abi0; do
-            if [ ! -f "$BRIDGE_BUILD_DIR/$name" ]; then
-                echo "Error: required Bambu bridge binary is missing: $BRIDGE_BUILD_DIR/$name" >&2
+            # Separate CMake targets normally write into their own build
+            # subdirectory, not next to the main OrcaSlicer executable.
+            mapfile -t candidates < <(find "$REPO_ROOT/build/src" -type f \
+                -path "*/$CONFIG/$name" -print)
+            if [ "${#candidates[@]}" -ne 1 ]; then
+                echo "Error: expected one $CONFIG Bambu bridge binary named $name, found ${#candidates[@]}" >&2
                 exit 1
             fi
-            cp -f "$BRIDGE_BUILD_DIR/$name" "$BIN_DIR/$name"
+            cp -f "${candidates[0]}" "$BIN_DIR/$name"
         done
         chmod +x "$BIN_DIR/pjarczak_bambu_linux_host" "$BIN_DIR/pjarczak_bambu_linux_host_abi1" "$BIN_DIR/pjarczak_bambu_linux_host_abi0"
     fi
