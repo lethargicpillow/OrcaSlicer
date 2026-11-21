@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <cstdio>
 #include <thread>
+#include <chrono>
 #include <filesystem>
 #include <system_error>
 
@@ -116,6 +117,17 @@ int main(int argc, char** argv)
     LinuxPluginHost host;
     std::mutex out_mutex;
 
+    // Opt-in RPC timing trace. Deliberately never log request/response payloads:
+    // they can contain LAN access codes, tokens or printer identifiers.
+    const char* rpc_trace_env = std::getenv("PJARCZAK_BAMBU_RPC_TRACE");
+    const bool rpc_trace = rpc_trace_env && std::string(rpc_trace_env) == "1";
+    std::mutex trace_mutex;
+    auto trace = [&](const std::string& text) {
+        if (!rpc_trace) return;
+        std::lock_guard<std::mutex> lock(trace_mutex);
+        std::cerr << "[PJBRIDGE-RPC] " << text << '\n';
+    };
+
     while (true) {
         RawRpcFrame raw;
         std::string err;
@@ -142,9 +154,24 @@ int main(int argc, char** argv)
             request_binary = std::move(binary_raw.payload);
         }
 
-        std::thread([&host, &rpc_out, &out_mutex, req_id = req.id, req_method = req.method, req_payload = req.payload, request_binary = std::move(request_binary)]() mutable {
+        std::thread([&host, &rpc_out, &out_mutex, &trace, req_id = req.id, req_method = req.method, req_payload = req.payload, request_binary = std::move(request_binary)]() mutable {
+            const auto start = std::chrono::steady_clock::now();
+            trace("BEGIN id=" + std::to_string(req_id) + " method=" + req_method);
             LinuxPluginHost::set_thread_request_binary(std::move(request_binary));
-            nlohmann::json resp = host.handle(req_method, req_payload);
+            nlohmann::json resp;
+            try {
+                resp = host.handle(req_method, req_payload);
+            } catch (const std::exception& e) {
+                // Do not print exception.what(): it can embed a sensitive value.
+                resp = {{"ok", false}, {"error", "RPC handler threw an exception"}};
+            } catch (...) {
+                resp = {{"ok", false}, {"error", "RPC handler threw an unknown exception"}};
+            }
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start).count();
+            const bool ok = resp.is_object() && resp.value("ok", false);
+            trace("END id=" + std::to_string(req_id) + " method=" + req_method +
+                  " elapsed_ms=" + std::to_string(elapsed) + " ok=" + (ok ? "true" : "false"));
 
             std::vector<unsigned char> reply_binary;
             const bool has_reply_binary = LinuxPluginHost::consume_thread_reply_binary(reply_binary);
