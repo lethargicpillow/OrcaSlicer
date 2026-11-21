@@ -1,0 +1,46 @@
+name: BambuNetwork bridge smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/bambunetwork-bridge-smoke.yml"
+      - "src/slic3r/Utils/PJarczakLinuxBridge/**"
+      - "shared/pjarczak_linux_plugin_bridge_core/**"
+      - "tools/pjarczak_bambu_linux_host/**"
+      - "src/slic3r/Utils/bambu_networking.hpp"
+      - "src/slic3r/Utils/BBLNetworkPlugin.cpp"
+      - "scripts/audit_bambulab*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify API and ABI snapshot parity
+        run: |
+          python3 scripts/audit_bambulab_bridge_api.py .
+          python3 scripts/audit_bambulab_port.py
+      - name: Check runtime script syntax
+        run: |
+          bash -n tools/pjarczak_bambu_linux_host/package_linux_host_runtime.sh
+          bash -n tools/pjarczak_bambu_runtime/rootfs/build_windows_wsl_rootfs.sh
+          bash -n tools/pjarczak_bambu_runtime/wsl/pjarczak_wsl_run_host.sh
+          bash -n tools/pjarczak_bambu_runtime/macos/pjarczak_install_macos_runtime.sh
+          bash -n tools/pjarczak_bambu_runtime/macos/pjarczak_verify_macos_runtime.sh
+
+  linux-host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host-only build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake g++ libssl-dev nlohmann-json3-dev libboost-dev
+      - name: Configure standalone Linux host (no slicer deps required)
+        run: cmake -S tools/pjarczak_bambu_linux_host -B build/bambulab-host -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Compile both libstdc++ ABI variants
+        run: cmake --build build/bambulab-host --target pjarczak_bambu_linux_host --parallel 2
