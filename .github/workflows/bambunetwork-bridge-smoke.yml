@@ -12,6 +12,11 @@ on:
       - "scripts/audit_bambulab*.py"
   workflow_dispatch:
 
+# Cancel stale checks when the draft PR receives another code update.
+concurrency:
+  group: bambunetwork-bridge-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
