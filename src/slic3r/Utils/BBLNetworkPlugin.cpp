@@ -148,8 +148,17 @@ int BBLNetworkPlugin::initialize(bool using_backup, const std::string& version)
 #if defined(ORCA_BAMBU_NETWORK_BRIDGE)
     const bool bridge_requested = PJarczakLinuxBridge::enabled()
                                && PJarczakLinuxBridge::use_bridge_network_module();
-    if (bridge_requested)
+    if (bridge_requested) {
+        // The bridge belongs to the application bundle; the proprietary ELF
+        // belongs in the user's plug-in directory. Do not confuse the two.
         library = PJarczakLinuxBridge::bridge_network_library_path(plugin_folder);
+        if (!boost::filesystem::exists(library)) {
+            const std::string packaged_bridge =
+                get_libpath_in_current_directory(PJarczakLinuxBridge::bridge_network_module_stem());
+            if (!packaged_bridge.empty())
+                library = packaged_bridge;
+        }
+    }
 #else
     const bool bridge_requested = false;
 #endif
