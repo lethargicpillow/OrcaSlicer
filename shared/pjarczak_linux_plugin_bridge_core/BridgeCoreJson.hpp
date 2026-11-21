@@ -55,14 +55,11 @@ inline nlohmann::json to_json(const BBL::PrintParams& p)
         {"task_ext_change_assist", p.task_ext_change_assist},
         {"try_emmc_print", p.try_emmc_print}
     };
-#if !defined(PJARCZAK_LINUX_BRIDGE_STANDALONE_HOST)
-    // These values are absent from the 2026-05 Linux host ABI. Serialize
-    // them explicitly instead of silently dropping current Orca settings.
+    // Full current PrintParams, including fields that moved inside the struct.
     result["task_timelapse_use_internal"] = p.task_timelapse_use_internal;
     result["svc_context"] = p.svc_context;
     result["slicer_uid"] = p.slicer_uid;
     result["queue_plate_id"] = p.queue_plate_id;
-#endif
     return result;
 }
 
@@ -111,12 +108,10 @@ inline BBL::PrintParams print_params_from_json(const nlohmann::json& j)
     p.extruder_cali_manual_mode = j.value("extruder_cali_manual_mode", -1);
     p.task_ext_change_assist = j.value("task_ext_change_assist", false);
     p.try_emmc_print = j.value("try_emmc_print", false);
-#if !defined(PJARCZAK_LINUX_BRIDGE_STANDALONE_HOST)
     p.task_timelapse_use_internal = j.value("task_timelapse_use_internal", false);
     p.svc_context = j.value("svc_context", std::string());
     p.slicer_uid = j.value("slicer_uid", std::string());
     p.queue_plate_id = j.value("queue_plate_id", std::string());
-#endif
     return p;
 }
 
