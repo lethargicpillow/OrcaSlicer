@@ -49,9 +49,9 @@ errors = []
 # Linux host gets a lightweight mirror. Missing tail fields cause buffer
 # overwrites when a modern Bambu plug-in populates the task in place.
 for field in ("design_title", "title", "instance_title", "create_client"):
-    if not re.search(r"\\bstd::string\\s+" + re.escape(field) + r"\\s*;", project_tasks):
+    if not re.search(r"\bstd::string\s+" + re.escape(field) + r"\s*;", project_tasks):
         errors.append(f"unknown current BBLModelTask field: {field}")
-    if not re.search(r"\\bstd::string\\s+" + re.escape(field) + r"\\s*;", task_compat):
+    if not re.search(r"\bstd::string\s+" + re.escape(field) + r"\s*;", task_compat):
         errors.append(f"missing host BBLModelTask field: {field}")
 if 'PJARCZAK_LINUX_BRIDGE_LIGHTWEIGHT_TASKS=1 BAMBU_EXPORTS' in bridge_cmake:
     errors.append("Windows bridge must use real Orca BBLModelTask")
