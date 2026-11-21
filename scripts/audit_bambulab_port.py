@@ -39,7 +39,25 @@ def struct_body(source: str, name: str) -> str:
     return canon(source[i : j - 1])
 
 
+project_tasks = read("src/libslic3r/ProjectTask.hpp")
+task_compat = read("src/slic3r/Utils/PJarczakLinuxBridge/PJarczakLinuxBridgeCompat.hpp")
+bridge_cmake = read("src/slic3r/Utils/PJarczakLinuxBridge/CMakeLists.txt")
+
 errors = []
+
+# A native bridge must use Orca's real task object; only the independent
+# Linux host gets a lightweight mirror. Missing tail fields cause buffer
+# overwrites when a modern Bambu plug-in populates the task in place.
+for field in ("design_title", "title", "instance_title", "create_client"):
+    if not re.search(r"\\bstd::string\\s+" + re.escape(field) + r"\\s*;", project_tasks):
+        errors.append(f"unknown current BBLModelTask field: {field}")
+    if not re.search(r"\\bstd::string\\s+" + re.escape(field) + r"\\s*;", task_compat):
+        errors.append(f"missing host BBLModelTask field: {field}")
+if 'PJARCZAK_LINUX_BRIDGE_LIGHTWEIGHT_TASKS=1 BAMBU_EXPORTS' in bridge_cmake:
+    errors.append("Windows bridge must use real Orca BBLModelTask")
+if 'target_compile_definitions(pjarczak_bambu_networking_bridge PRIVATE PJARCZAK_LINUX_BRIDGE_LIGHTWEIGHT_TASKS=1)' in bridge_cmake:
+    errors.append("macOS bridge must use real Orca BBLModelTask")
+
 
 for name in (
     "PrintParams",
