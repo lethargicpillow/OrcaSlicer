@@ -226,7 +226,9 @@ int BBLNetworkPlugin::initialize(bool using_backup, const std::string& version)
     const std::string loaded_version = m_get_version ? m_get_version() : std::string();
     m_network_abi = network_plugin_abi(loaded_version.empty() ? version : loaded_version);
 
-    if (bridge_requested && (loaded_version.empty() || m_network_abi == NetworkAbi::Unsupported)) {
+    // This forwarder exports the *Current* callable C++ signatures only.
+// Older ABI dispatch in BBLPrinterAgent must never call it.
+    if (bridge_requested && (loaded_version.empty() || m_network_abi != NetworkAbi::Current)) {
         set_load_error(_u8L("Incompatible BambuNetwork bridge"),
                        "Bridge host returned an unsupported or missing network ABI: " + loaded_version,
                        library);
