@@ -893,6 +893,8 @@ add_subdirectory(GUI/DeviceTab)
 # parity and real-printer tests pass; default Orca behaviour is unchanged.
 option(ORCA_BAMBU_NETWORK_BRIDGE "Build the experimental BambuNetwork RPC bridge" OFF)
 if (ORCA_BAMBU_NETWORK_BRIDGE)
+    # AppConfig lives in libslic3r, configured before the GUI directory.
+    target_compile_definitions(libslic3r PRIVATE ORCA_BAMBU_FORK_UPDATER=1)
     list(APPEND SLIC3R_GUI_SOURCES
         Utils/PJarczakLinuxBridge/PJarczakLinuxBridgeConfig.cpp
     )
