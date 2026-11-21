@@ -114,33 +114,26 @@ const nlohmann::json* find_manifest_entry(const nlohmann::json& root, const std:
 
 bool enabled()
 {
+    // An experimental transport must never take over stock Orca merely
+    // because the binary was built with bridge support.
     bool forced = false;
-    if (env_flag("PJARCZAK_LINUX_BRIDGE_ENABLED", forced))
-        return forced;
-
-#if defined(_MSC_VER) || defined(_WIN32)
-    return true;
-#elif defined(__WXMAC__) || defined(__APPLE__)
-    return true;
-#else
-    return false;
-#endif
+    return env_flag("PJARCZAK_LINUX_BRIDGE_ENABLED", forced) && forced;
 }
 
 bool use_bridge_network_module()
 {
-#if defined(_MSC_VER) || defined(_WIN32)
+    // The bridge uses a distinct module name on every OS to avoid shadowing
+    // the normal BambuNetwork library. The runtime opt-in is in enabled().
     return true;
-#elif defined(__WXMAC__) || defined(__APPLE__)
-    return true;
-#else
-    return false;
-#endif
 }
 
 bool source_module_is_network_module()
 {
-    return use_bridge_network_module();
+#if defined(_MSC_VER) || defined(_WIN32)
+    return true; // the Windows bridge forwards BambuSource exports
+#else
+    return false; // macOS video needs the actual BambuSource module
+#endif
 }
 
 bool should_force_linux_plugin_payload(const std::string& plugin_name)
@@ -170,7 +163,7 @@ std::string bridge_network_current_dir_name()
 #elif defined(__WXMAC__) || defined(__APPLE__)
     return "lib" + bridge_network_module_stem() + ".dylib";
 #else
-    return linux_network_library_name();
+    return "lib" + bridge_network_module_stem() + ".so";
 #endif
 }
 
@@ -181,7 +174,7 @@ std::string bridge_network_library_path(const std::filesystem::path& plugin_fold
 #elif defined(__WXMAC__) || defined(__APPLE__)
     return (plugin_folder / ("lib" + bridge_network_module_stem() + ".dylib")).string();
 #else
-    return (plugin_folder / linux_network_library_name()).string();
+    return (plugin_folder / ("lib" + bridge_network_module_stem() + ".so")).string();
 #endif
 }
 
