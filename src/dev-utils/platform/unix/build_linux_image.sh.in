@@ -453,7 +453,10 @@ fi
 # 1) OrcaSlicer will segfault on systems where locale info is not as expected (i.e. Holo-ISO arch-based distro)
 export LC_ALL=C
 
-if [ "\$XDG_SESSION_TYPE" = "wayland" ] && [ "\$ZINK_DISABLE_OVERRIDE" != "1" ]; then
+# Opt-in only: automatically forcing Mesa/Zink on NVIDIA + Wayland can crash
+# the host WebKitGTK renderer (notably Device); keep the system GPU driver by default.
+# Set ZINK_FORCE_OVERRIDE=1 to restore the old behavior when needed.
+if [ "\$XDG_SESSION_TYPE" = "wayland" ] && [ "\$ZINK_FORCE_OVERRIDE" = "1" ] && [ "\$ZINK_DISABLE_OVERRIDE" != "1" ]; then
     if command -v glxinfo >/dev/null 2>&1; then
         RENDERER=\$(glxinfo | grep "OpenGL renderer string:" | sed 's/.*: //')
         if echo "\$RENDERER" | grep -qi "NVIDIA"; then

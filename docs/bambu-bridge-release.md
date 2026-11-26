@@ -49,3 +49,29 @@ The automated build validates packaging and normal Orca tests but cannot
 prove network connectivity to a physical X1E. Windows and macOS stock
 installers must not be published as if they contained a working Linux
 bridge runtime.
+
+## Local AppImage smoke test and existing development data
+
+The previously working development GUI used `--datadir` with
+`~/OrcaSlicer-bambulab-test/.orca-bridge-test`. A normal AppImage invocation
+uses `~/.config/OrcaSlicer` (unless XDG_CONFIG_HOME overrides it). It cannot
+see the development printer presets and user-installed BambuNetwork payload.
+For a non-migrating comparison run:
+
+```bash
+ZINK_DISABLE_OVERRIDE=1 ./OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.6.0-dev.AppImage \
+  --datadir "$HOME/OrcaSlicer-bambulab-test/.orca-bridge-test"
+```
+
+The AppImage includes the open-source bridge and ABI Host executables but
+**not** proprietary `libbambu_networking.so` or `libBambuSource.so`.
+Those must be present under `<datadir>/plugins/`. Do not silently move or
+overwrite the development data directory.
+
+On NVIDIA/Wayland, automatically forcing Mesa/Zink is unsafe for some host
+WebKitGTK/graphics combinations. The AppImage launcher now only enables
+Zink with `ZINK_FORCE_OVERRIDE=1` (and not with `ZINK_DISABLE_OVERRIDE=1`).
+For an existing AppImage use `ZINK_DISABLE_OVERRIDE=1` to avoid its automatic
+override; `WEBKIT_DISABLE_COMPOSITING_MODE=1` may help isolate WebKitGTK
+crashes but is not a blanket solution. Prefer `journalctl` and
+`coredumpctl info` to opening crashing graphical core-dump viewers.
